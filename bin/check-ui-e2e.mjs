@@ -171,11 +171,15 @@ function makeFixture() {
 	// 再灌 250 条改写账本（> CAP=200）→ 扫描必须把它们聚合成**一行**，
 	// 而不是让界面去列 250 行、让请求体去装 250 个下标。
 	for (let i = 0; i < 250; i += 1) {
-		push("assistant", [{ type: "thinking", thinking: "思考 " + i + " ".repeat(40) }, { type: "text", text: "正文 " + i }], { input: 3, output: 1, totalTokens: 4 }, { ce: true });
+		// ce: true 必传：这批的形状必须是「target 带 thinking、replacement 是它的复制（thinking 被截短）」，
+		// 那才是 CONTEXT_EDIT 判 dup 的条件。不传就只是 250 条普通消息，聚合那条判据永远拿不到 >200 条同类。
+		push("assistant", [{ type: "thinking", thinking: "思考 " + i + " ".repeat(40) }, { type: "text", text: "正文 " + i }], { input: 5, output: 5, totalTokens: 10 }, { ce: true });
 	}
 	return lines.join("\n") + "\n";
 }
-writeFileSync(join(sandbox, "2026-01-01T00-00-00-000Z_00000000-fixture0001.jsonl"), makeFixture());
+const fixtureText = makeFixture();
+writeFileSync(join(sandbox, "2026-01-01T00-00-00-000Z_00000000-fixture0001.jsonl"), fixtureText);
+console.log("合成样本：" + (fixtureText.split("\n").length - 1) + " 行，context_edit " + (fixtureText.match(/"type":"context_edit"/g) || []).length + " 条");
 console.log("沙箱：" + join(dir, "files") + "（" + Math.min(2, seeds.length) + " 个会话副本）");
 
 process.env.SESSION_DOCTOR_DIR = sandbox;
@@ -233,7 +237,7 @@ t("扫描完成显示时间戳与耗时", /\d\d:\d\d:\d\d · \d+\.\ds/.test(res.
 {
 	const kinds = res.afterScan.rowKinds || [];
 	const dupRows = kinds.filter((k) => k === "改写账本").length;
-	t("同类超 200 条聚合成一行", dupRows === 1, "改写账本行数 " + dupRows + "（应为 1）");
+	t("同类超 200 条聚合成一行", dupRows === 1, "改写账本行数 " + dupRows + "（应为 1）· 视口内种类=" + (res.afterScan.rowKinds || []).join(" | ").slice(0, 200));
 	t("聚合行显示真实条数", /×\d+/.test(String(res.afterScan.log || "")) || res.afterScan.rowCount > 0,
 		"视口 " + res.afterScan.rowCount);
 }
@@ -253,7 +257,10 @@ t("全部视图带文件名列", res.afterScan.firstFileCol !== null, String(res
 // ── 卡片切换 ──
 t("点单文件卡后切到单文件视图（不再有 .row.wide）", res.afterCardClick.wideRows === 0,
 	"wide=" + res.afterCardClick.wideRows + " file=" + res.afterCardClick.fileCols + " summarySel=" + res.afterCardClick.summarySel);
-t("点汇总卡回到全部视图", res.backToAll.summarySel === true && res.backToAll.firstFileCol !== null);
+// 判「回到全部视图」不能只看首行：聚合行（一行代表十几万条）现在排在最前，它不显示文件名列。
+// 改判「这个视图里有文件列」—— 那才是「全部视图」的定义。2026-11-26 因排序调整而红过一次。
+t("点汇总卡回到全部视图", res.backToAll.summarySel === true && res.backToAll.fileCols > 0,
+	"fileCols=" + res.backToAll.fileCols + " wide=" + res.backToAll.wideRows + " rows=" + res.backToAll.rowCount + " total=" + res.backToAll.totalRows + " summarySel=" + res.backToAll.summarySel);
 
 // ── 勾选 ──
 t("勾选全部可删后顶栏有数字", Number(res.afterPickRemove.nPick) > 0, res.afterPickRemove.nPick);
@@ -297,12 +304,14 @@ t("可省量带单位且不是 0.0 MB 的假零", /KB|MB/.test(String(res.afterS
 
 // ── 卡片统计与清单必须同源 ──
 // 用户截图实测：卡片写「可折 2」，右边清单里有 3 条可折 —— 卡片自己又过滤了一遍。
-/** 从卡片文案里读「可删 N / 可折 M」。 */
+/** 从卡片文案里读四维：可删 / 可折 / 可接（接链）/ 可清（清签名）。 */
 const cardNums = (text) => {
 	const t = String(text || "");
 	return {
 		rem: Number((t.match(/可删 (\d+)/) || [0, 0])[1]),
 		fold: Number((t.match(/可折 (\d+)/) || [0, 0])[1]),
+		rel: Number((t.match(/可接 (\d+)/) || [0, 0])[1]),
+		clean: Number((t.match(/可清 (\d+)/) || [0, 0])[1]),
 	};
 };
 let bad1 = 0;
@@ -320,9 +329,9 @@ const WHY_NOT_ROWS = "（rows 是视口内的行数，虚拟化会少渲）";
 {
 	const sum = cardNums(res.afterScan.cardMeta[0]);
 	const n = totalOf(res.afterScan);
-	const ok1 = sum.rem + sum.fold === n;
+	const ok1 = sum.rem + sum.fold + sum.rel + sum.clean === n;
 	if (!ok1) bad1 = 1;
-	detail += "汇总卡 " + sum.rem + "+" + sum.fold + (ok1 ? " == " : " != ") + "条 " + n +
+	detail += "汇总卡 " + sum.rem + "+" + sum.fold + "+" + sum.rel + "+" + sum.clean + (ok1 ? " == " : " != ") + "条 " + n +
 		" (视口 " + res.afterScan.rowCount + ")";
 }
 // ② 点进某个文件：**被选中那张卡**（.card.sel）与那个文件的清单条数必须相同 ——
@@ -335,9 +344,9 @@ const WHY_NOT_ROWS = "（rows 是视口内的行数，虚拟化会少渲）";
 	const n = totalOf(sel);
 	if (!(sel && n > 0)) {
 		detail += "；单文件视图无行，跳过";
-	} else if (sc.rem + sc.fold !== n) {
+	} else if (sc.rem + sc.fold + sc.rel + sc.clean !== n) {
 		bad2 = 1;
-		detail += "；选中卡 " + sc.rem + "+" + sc.fold + " != " + n + " 条" + WHY_NOT_ROWS;
+		detail += "；选中卡 " + sc.rem + "+" + sc.fold + "+" + sc.rel + "+" + sc.clean + " != " + n + " 条" + WHY_NOT_ROWS;
 	} else {
 		detail += "；选中卡 " + sc.rem + "+" + sc.fold + " == " + n + " 条";
 	}

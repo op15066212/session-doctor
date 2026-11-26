@@ -12,7 +12,7 @@
  *                     └─err→ error
  */
 
-import { actionOf } from "./kinds.js";
+import { actionOf, metaOf } from "./kinds.js";
 
 export const PHASE = {
 	IDLE: "idle",
@@ -72,6 +72,10 @@ export function visibleAnomalies(s = state) {
 		s.files.forEach((f, fi) => {
 			for (const a of f.anomalies) out.push({ ...a, fileIdx: fi, fileName: f.name });
 		});
+		// 聚合行（一行代表成百上千条）排最前：虚拟化只渲视口内的十几行，
+		// 排在十万条明细后面就等于看不见。2026-11-26 实测：新加的「思考签名」一类
+		// 把「改写账本」聚合行挤出视口，人以为那类问题不存在。
+		out.sort((x, y) => (y.aggregate ? 1 : 0) - (x.aggregate ? 1 : 0));
 		return out;
 	}
 	const f = s.files[s.cur];
@@ -85,25 +89,27 @@ export function visibleAnomalies(s = state) {
  * 于是同一个文件在卡片上写「可折 2」、在清单里有 3 条 —— 两处各算一遍必然分叉。
  */
 export function fileTotals(f) {
-	let anomalies = 0, removable = 0, foldable = 0, bytes = 0;
+	let anomalies = 0, removable = 0, foldable = 0, relink = 0, clean = 0, bytes = 0;
 	for (const a of f.anomalies || []) {
 		anomalies += 1;
 		bytes += a.bytes || 0;
 		const act = actionOf(a.kind);
 		if (act === "remove") removable += 1;
 		else if (act === "fold" || act === "strip") foldable += 1;
+		else if (act === "relink") relink += 1;
+		else if (act === "clean") clean += 1;
 	}
-	return { anomalies, removable, foldable, bytes };
+	return { anomalies, removable, foldable, relink, clean, bytes };
 }
 
 /** 统计：顶栏与汇总卡共用同一份算法。 */
 export function totals(s = state) {
-	let anomalies = 0, removable = 0, foldable = 0, bytes = 0;
+	let anomalies = 0, removable = 0, foldable = 0, relink = 0, clean = 0, bytes = 0;
 	for (const f of s.files) {
 		const t = fileTotals(f);
-		anomalies += t.anomalies; removable += t.removable; foldable += t.foldable; bytes += t.bytes;
+		anomalies += t.anomalies; removable += t.removable; foldable += t.foldable; bytes += t.bytes; relink += t.relink; clean += t.clean;
 	}
-	return { files: s.files.length, anomalies, removable, foldable, bytes };
+	return { files: s.files.length, anomalies, removable, foldable, relink, clean, bytes };
 }
 
 /** 已勾选条目的统计。 */
@@ -145,6 +151,50 @@ export function pickKinds(actions) {
 	setState({ picks: next });
 }
 
+/** 当前视图里的异常按 kind 分组：给「每类一个复选框」用。
+ *  count 用真实条数（聚合项算 count 条），picked 同理 —— 否则复选框写「1」实际 12 万条。
+ *  full = 这一类在当前视图里全被勾上（复选框只在三态都一致时才叫「全选」）。
+ */
+export function kindGroups(s = state) {
+	const scope = s.cur === ALL
+		? s.files.map((f, fi) => [f, fi])
+		: (s.files[s.cur] ? [[s.files[s.cur], s.cur]] : []);
+	const map = new Map();
+	for (const [f, fi] of scope) {
+		for (const a of f.anomalies || []) {
+			const n = a.aggregate ? a.count : 1;
+			let g = map.get(a.kind);
+			if (!g) { g = { kind: a.kind, count: 0, picked: 0 }; map.set(a.kind, g); }
+			g.count += n;
+			if (s.picks.has(pickKey(fi, a))) g.picked += n;
+		}
+	}
+	const out = [];
+	for (const g of map.values()) {
+		if (!g.count) continue;
+		out.push({ ...g, ...metaOf(g.kind), full: g.picked >= g.count });
+	}
+	out.sort((a, b) => b.count - a.count);
+	return out;
+}
+
+/** 勾选/取消某一类（当前视图作用域）。已经是全选就整类取消，否则整类勾上。 */
+export function toggleKind(kind) {
+	const scope = state.cur === ALL
+		? state.files.map((f, fi) => [f, fi])
+		: (state.files[state.cur] ? [[state.files[state.cur], state.cur]] : []);
+	const hit = [];
+	for (const [f, fi] of scope) for (const a of f.anomalies || []) if (a.kind === kind) hit.push([fi, a]);
+	if (!hit.length) return;
+	const all = hit.every(([fi, a]) => state.picks.has(pickKey(fi, a)));
+	const next = new Set(state.picks);
+	for (const [fi, a] of hit) {
+		const k = pickKey(fi, a);
+		if (all) next.delete(k); else next.add(k);
+	}
+	setState({ picks: next });
+}
+
 /** 把勾选整理成「按文件分组」的请求体。没勾的文件不出现。 */
 export function groupPicks(s = state) {
 	const byFile = new Map();
@@ -164,6 +214,8 @@ export function groupPicks(s = state) {
 			// 计数：聚合项算它代表的**真实条数**，不是 1。
 			// 否则确认框写「将删 1 条」而实际删 12 万条 —— 那是假话，而且是关于不可逆动作的假话。
 			rem: hit.filter((a) => actionOf(a.kind) === "remove").reduce((n, a) => n + (a.aggregate ? a.count : 1), 0),
+			relink: hit.filter((a) => actionOf(a.kind) === "relink").reduce((n, a) => n + (a.aggregate ? a.count : 1), 0),
+			clean: hit.filter((a) => actionOf(a.kind) === "clean").reduce((n, a) => n + (a.aggregate ? a.count : 1), 0),
 			fold: hit.filter((a) => actionOf(a.kind) !== "remove").reduce((n, a) => n + (a.aggregate ? a.count : 1), 0),
 			bytes: hit.reduce((n, a) => n + (a.bytes || 0), 0),
 		});

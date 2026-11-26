@@ -9,6 +9,8 @@
  *   remove  整条删除
  *   strip   只摘掉命中的块（条目留下）
  *   fold    块内折叠
+ *   relink  接回父指针（不删字节）
+ *   clean   只删一个字段（块留下）
  *   info    只报告，不参与执行
  */
 export const KINDS = {
@@ -22,7 +24,9 @@ export const KINDS = {
 	"big-text":            { label: "长正文",   action: "fold",   tone: "fold", why: "老轮次的长正文" },
 	"big-thinking":        { label: "长思考",   action: "fold",   tone: "fold", why: "老轮次的长思考" },
 	"big-toolcall":        { label: "长参数",   action: "fold",   tone: "fold", why: "老轮次的超长工具参数" },
-	"unreachable":         { label: "断链",     action: "info",   tone: "info", why: "从根沿 parentId 走不到，已与主链断开" },
+	"unreachable":         { label: "脱链",     action: "info",   tone: "info", why: "从根沿 parentId 走不到（父指针还在，但链上有环或更早的断口）" },
+	"broken-link":         { label: "断链",     action: "relink", tone: "rel",  why: "父指针指向的条目不在文件里：接回时间上紧邻的前一条，一个字节不删" },
+	"thinking-signature":  { label: "思考签名", action: "clean",  tone: "clean", why: "思考块的 API 签名（openai-completions 忽略；anthropic 必需，别清错协议）" },
 	"bad-line":            { label: "坏行",     action: "info",   tone: "info", why: "这一行不是合法 JSON" },
 	// 上下文改写账本：某插件给每条 assistant 追加一条「同一消息的复制，只有 thinking 被截短」。
 	// 单个文件实测 12.4 万条 / 305MB（占 87%）。删了对话一个字不丢 —— 它不含新内容，

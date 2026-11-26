@@ -33,7 +33,7 @@ import { join, basename, resolve, sep, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { exec } from "node:child_process";
 import { homedir } from "node:os";
-import { readSession, findAnomalies, applyChosen, applyFold, measure, verify, writeWithBackup, KIND, REMOVABLE, FOLDABLE, DEFAULTS } from "./lib/session-fix.mjs";
+import { readSession, findAnomalies, applyChosen, applyFold, measure, verify, writeWithBackup, KIND, REMOVABLE, FOLDABLE, RELINKABLE, CLEANABLE, DEFAULTS, applyRelink, applyClean } from "./lib/session-fix.mjs";
 
 const args = process.argv.slice(2);
 const pickArg = (name, dflt) => {
@@ -234,18 +234,22 @@ export function createDoctorServer() {
 			// 顺序：先折后删。两者都用**原始下标**，所以先做不改变行数的那一步。
 			// 反过来（先删再折）会让折叠用到的 entry 下标整体错位——删掉第 5 行之后，
 			// 原来的第 9 行变成第 8 行，而 chosen 里记的还是 9，折的就成了别的块。
-			const fold = applyFold(lines, entries, chosen, DEFAULTS);
+			// 四步的顺序是判过的：接链与清签名都不改行数，折叠也不改行数，删除必须最后。
+			// 反过来先删再接链，chosen 里的下标整体错位，接的就是别的条目。
+			const rl = applyRelink(lines, entries, chosen);
+			const cl = applyClean(rl.lines, entries, chosen);
+			const fold = applyFold(cl.lines, entries, chosen, DEFAULTS);
 			// 折叠改过内容，重新解析一遍给删除那一步用（行数与顺序都没变，下标仍然对齐）。
 			const foldedEntries = fold.lines.map((l) => { try { return JSON.parse(l); } catch { return null; } });
 			// 按勾选执行，**不重新判断异常**：界面里人勾了 3 条却删了 50 条是不可接受的。
 			// 只有两件结构必需的事会连带发生：级联删死引用、合并相邻 user（都会如实报数）。
 			const rm = applyChosen(fold.lines, foldedEntries, chosen);
-			const afterFold = rm.lines;
+			const afterFold = rm.lines; // 四步之后：接链 → 清签名 → 折叠 → 删除
 			const after = measure(afterFold);
 			// editsRevoked 必传：context_edit 的 dup 规则删的正是「每个 target 唯一的那条复制品」，
 			// 那是有意撤销（模型下一轮会看到完整 thinking），但必须可数、可对账。
 			// 不传的话 verify 会按「一条都不许少」判，任何 dup 清理都被拒 —— 2026-11-26 实测。
-			const v = verify(before, after, { usersMerged: rm.usersMerged, asstRemoved: rm.asstRemoved, editsRevoked: rm.editsRevoked });
+			const v = verify(before, after, { relinked: rl.relinked, cleaned: cl.cleaned, usersMerged: rm.usersMerged, asstRemoved: rm.asstRemoved, editsRevoked: rm.editsRevoked });
 			if (!v.ok) {
 				json(200, { ok: false, reason: "结构判据不通过，已拒绝写盘", checks: v.checks });
 				return;
@@ -253,7 +257,7 @@ export function createDoctorServer() {
 			const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 			const { backup } = writeWithBackup(target, afterFold, join(BACKUP_ROOT, stamp));
 			json(200, {
-				ok: true, removed: rm.removed, stripped: rm.stripped, rewired: rm.rewired,
+				ok: true, removed: rm.removed, stripped: rm.stripped, rewired: rm.rewired, relinked: rl.relinked, relinkSkipped: rl.skipped, cleaned: cl.cleaned,
 				cascadedEdits: rm.cascadedEdits, usersMerged: rm.usersMerged, folded: fold.folded,
 				sizeMB: +(statSync(target).size / 1048576).toFixed(1),
 				backup: backup.replace(BACKUP_ROOT + sep, "…/").split(sep).slice(-2).join("/"),
