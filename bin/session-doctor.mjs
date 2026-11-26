@@ -33,7 +33,7 @@ import { join, basename, resolve, sep, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { exec } from "node:child_process";
 import { homedir } from "node:os";
-import { readSession, findAnomalies, applyChosen, applyFold, measure, verify, writeWithBackup, KIND, REMOVABLE, FOLDABLE, RELINKABLE, CLEANABLE, DEFAULTS, applyRelink, applyClean } from "./lib/session-fix.mjs";
+import { readSession, findAnomalies, applyChosen, applyFold, measure, verify, writeWithBackup, KIND, REMOVABLE, FOLDABLE, RELINKABLE, CLEANABLE, DEFAULTS, applyRelink, applyClean, pruneBackups } from "./lib/session-fix.mjs";
 
 const args = process.argv.slice(2);
 const pickArg = (name, dflt) => {
@@ -266,12 +266,18 @@ export function createDoctorServer() {
 			}
 			const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 			const { backup } = writeWithBackup(target, afterFold, join(BACKUP_ROOT, stamp));
+			// 备份只写不删会无界增长（实测 131 份 / 6.1 GB）。每次写完顺带收一次：
+			// 留最近 10 份、且不超过 7 天。清理失败不影响这次执行（备份是退路，不是主线）。
+			let pruned = null;
+			try { pruned = pruneBackups(BACKUP_ROOT, { keepRecent: 10, keepDays: 7 }); } catch { pruned = null; }
 			json(200, {
 				ok: true, removed: rm.removed, stripped: rm.stripped, rewired: rm.rewired, relinked: rl.relinked, relinkSkipped: rl.skipped, cleaned: cl.cleaned,
 				cleaned: cl.cleaned, cleanSeen: cl.seen, cleanMissing: cl.missing,
 				// folded 必报：折了 20 张图而返回里没有这个数，日志就会写「无变化」——
 				// 那是关于一次真实改动的假话（2026-11-26 实测：折完 40→20 张，日志显示无变化）。
 				folded: fold.folded,
+				// 收了几个旧备份也报出来：不报的话「备份目录为什么变小了」没人说得清。
+				backupsPruned: pruned ? pruned.removed.length : 0,
 				sizeMB: +(statSync(target).size / 1048576).toFixed(1),
 				backup: backup.replace(BACKUP_ROOT + sep, "…/").split(sep).slice(-2).join("/"),
 				checks: v.checks,

@@ -49,22 +49,19 @@ node tools/session-doctor-desktop/launch.mjs
 
 ## 图片超限：会让会话永久卡死的那一类
 
-上游对单次请求的图片数有硬上限（实测 20 张 200、21 张 400，报错原文 `Total number of images exceeds the maximum allowed of 20`）。
-pi 每次请求都带整条链的历史，所以链上累计超过上限之后，**每一轮请求都 400，连压缩请求都发不出去** ——
+上游限单次请求的图片数（实测 20 张 200、21 张 400，报错 `Total number of images exceeds the maximum allowed of 20`）。
+pi 每次请求带整条链的历史，所以链上累计超过 20 张之后，**每一轮请求都 400，连压缩请求都发不出去** ——
 会话看起来完好，只是再也说不出话。
 
-会话医生判的是「链上」的图片数（从最后一条沿 parentId 回溯的那条链，因为请求只发链上的内容），
-超出的从**最老**的开始折成占位图，保留最近 20 张。执行后判据是「链上图片 <= 上限」——
-判的是会话能不能发出去，不是折了几张。
-
-两层分工，各判一件事：
+会话医生只数**当前链**（从最后一条沿 parentId 回溯，请求只发链上的内容），超出的从最老开始折成占位图，保留最近 20 张。
+判据是「链上图片 <= 上限」——判会话能不能发出去，不是判折了几张。
 
 | 层 | 在哪 | 改什么 | 判据 |
 | --- | --- | --- | --- |
 | 请求前裁 | `extensions/magpie-image-cap.ts`（插件） | 只动发出去的 payload，不改会话文件 | `check-image-cap.mjs` |
 | 文件里折 | 本仓「图片超限」这一类 | 改会话文件，折成占位，写盘生效 | `check-image-cap-chain.mjs` |
 
-为什么两层都要：插件让会话能继续用，但文件里的图还在；要真把体积和图片数降下来（以及救那些连压缩都 400 的会话），得改文件。
+两层都要：插件让会话能继续用，但文件里的图还在；要真降下来（以及救那些连压缩都 400 的会话）只能改文件。
 
 ## 扫描范围
 
@@ -74,7 +71,7 @@ pi 每次请求都带整条链的历史，所以链上累计超过上限之后�
 subagent-artifacts/   subagents/   pi-async/
 ```
 
-它们放的是子代理运行记录与异步任务中间件，格式与 pi 会话不同（`recordType / role / text`，没有 `id`、没有 `parentId`）。2026-11-26 实测：把 `*_transcript.jsonl` 当会话扫进来，会报出「思考签名 32 条」，而执行时按 `id` 找不到目标（`cleaned=0`）、删除那一步却按下标把它整条删了。结构判据因此变红、拒绝写盘——那次拒绝挡住了误清理。
+它们放的是子代理运行记录与异步中间件，格式与 pi 会话不同（`recordType / role / text`，没有 `id` / `parentId`）。把 `*_transcript.jsonl` 当会话扫进来，会报出一堆假异常，而执行时按 `id` 找不到目标。
 
 `bin/check-scan-scope.mjs` 挡这个：造一份真会话 + 一份子代理记录，断言只扫到前者。
 
@@ -85,17 +82,10 @@ node bin/restore-thinking.mjs            # dry-run，只报能补多少
 node bin/restore-thinking.mjs --write    # 写盘（改前先备份到 .session-backups）
 ```
 
-为什么有这个工具（2026-11-26 真发生）：摘块函数只判断「有没有块下标」、没判断 kind，
-于是「清签名」那 21942 条被当成摘块目标，把 17 个会话、共 22024 个 thinking 块**整块摘掉**；
-而当时 verify 只数签名字段 —— 签名确实归零，写盘一路绿灯。
+用来回填被误删的 thinking 块。历史：2026-11-26 摘块函数没判断 kind，把 17 个会话共 22024 个 thinking 块整块摘掉，
+而当时的判据只数签名字段 —— 签名归零、写盘一路绿灯。现在三条判据挡着（见「判据」一节）。
 
-现在三条判据挡着：`verify` 里的「thinking 块数下降量 == 被删条目里的块数」
-（为什么不是「完全不变」：删「孤立思考」是设计好的删除，必然少一个块 —— 写成不变会把合法删除判红，
-实测 1103 → 1102 就让一个文件永远清不掉）；`check-clean-signature.mjs` 的事故样本
-（把只有 thinking-signature 的 chosen 喂给摘块函数，块数必须一个不少）；
-`check-verify-on-real.mjs` 在真实会话副本上把「全选执行」走一遍，并验漏传计数时判据会红。
-
-恢复的语义写死在工具里，三条不许违反：
+三条不许违反：
 
 1. 行数不变（只改既有条目的 content）；
 2. id 与 parentId 逐条不变（链不动，界面上的会话不会错位）；
@@ -120,14 +110,10 @@ bin/
   session-doctor.mjs      后端：HTTP + 扫描 + 执行（无依赖）
   session-doctor/         前端：preact + htm + TanStack virtual-core，纯 ESM 无构建
     index.html  app.js  components.js  store.js  api.js  format.js  kinds.js  app.css
-    vendor/               前端依赖（preact/htm/virtual-core），直接进仓
-    e2e-probe.cjs         E2E 探针
-  lib/session-fix.mjs     ← 一行转发，见上
-  restore-thinking.mjs     从备份回填 thinking 块（改前备份，链不动）
-  check-scan-scope.mjs     判据：不扫子代理记录
-  check-restore-thinking.mjs 判据：回填只补块、不动链，且不带回签名
-  check-ui-script.mjs     判据：前端每个模块都能被 node 解析
-  check-ui-e2e.mjs        判据：真起 Electron，51 条断言跑一遍主流程
+    vendor/               前端依赖，直接进仓；e2e-probe.cjs 是 E2E 探针
+  lib/session-fix.mjs     ← 一行转发到真值，见上
+  restore-thinking.mjs    从备份回填 thinking 块（改前备份，链不动）
+  check-*.mjs             判据，清单见 `node gate.mjs --list`
 tools/
   session-doctor-desktop/   Electron 壳（main.mjs 只做窗口 + 起后端）
   session-doctor-installer/ 打包：Electron 运行时 + app/ → 7z SFX → exe
@@ -159,10 +145,18 @@ node tools/session-doctor-installer/build-installer.mjs --layout   # 只生成�
 
 打包拒绝两种产物：
 - `session-fix.mjs` 是转发而不是实体文件（装到别的机器上 import 会断）；
-- 产物里有备份/临时文件（`*.bak` / `*.orig` / `*~` / `*.log`）。2026-11-26 实测：两个 `*.bak` 被一起拷进 `app/`，安装包里躺着 14490 字节的旧版本。
+- 产物里有备份/临时文件（`*.bak` / `*.orig` / `*~` / `*.log`）。被一起拷进 `app/` 的那次，安装包里躺着一个 14490 字节的旧版本。
 
-没用 electron-builder：本机 npm 12 报 `EALLOWREMOTE`，拒绝从 npmmirror 的 tarball 地址拉包。7z SFX 是等价物，产物同样是 exe，不依赖网络。代价是绿色版——没有「控制面板卸载」，删目录即卸载。
+没用 electron-builder：本机 npm 12 报 `EALLOWREMOTE`，拒从 npmmirror 的 tarball 地址拉包。7z SFX 是等价物，产物同样是 exe，不依赖网络；代价是绿色版，删目录即卸载。
 
-## 和 ~/.pi/agent 的关系
+## 备份不会无界增长
 
-以前这些文件散在 `~/.pi/agent/bin/` 和 `~/.pi/agent/tools/` 里，与上百条别的判据混在一起。现在代码单独成仓（本仓），主仓只留一份判定逻辑真值。本仓的相对布局与原位置**逐层一致**（`bin/` + `tools/`），所以文件里一条 import 路径都没改。
+每次写盘前把整份文件复制到 `.session-backups/<时间戳>/`。这份退路有保留策略：
+
+- **留最近 10 份**（份数是硬上限）；
+- 天数只是保底（默认 1 天：今天产生的退路今天不删）；
+- 只清本工具写的那种时间戳目录，别人的（`chainfix-*` 之类）一概不碰；
+- 清理失败不影响这次执行 —— 备份是退路，不是主线。
+
+历史：此前只写不删，实测攒到 111 份 / 6.1 GB，其中 109 份在 24 小时内。判据 `bin/check-backup-retention.mjs`。
+
