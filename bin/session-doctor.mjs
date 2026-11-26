@@ -259,7 +259,7 @@ export function createDoctorServer() {
 			// cleanIds 必传：清签名要逐条核对「选中且仍存活的那些不再带签名」。
 			// 不传的话 verify 只按数量判，遇到「条目同时被判为孤立思考、整条被删」就会误红。
 			const cleanIds = chosen.filter((a) => CLEANABLE.includes(a.kind)).map((a) => entries[a.entry]?.id).filter((id) => typeof id === 'string');
-			const v = verify(before, after, { relinked: rl.relinked, cleaned: cl.cleaned, cleanIds, usersMerged: rm.usersMerged, asstRemoved: rm.asstRemoved, editsRevoked: rm.editsRevoked, thinkRemoved: rm.thinkRemoved });
+			const v = verify(before, after, { relinked: rl.relinked, cleaned: cl.cleaned, cleanIds, usersMerged: rm.usersMerged, asstRemoved: rm.asstRemoved, editsRevoked: rm.editsRevoked, thinkRemoved: rm.thinkRemoved, maxImages: DEFAULTS.maxImages });
 			if (!v.ok) {
 				json(200, { ok: false, reason: "结构判据不通过，已拒绝写盘", checks: v.checks });
 				return;
@@ -269,6 +269,9 @@ export function createDoctorServer() {
 			json(200, {
 				ok: true, removed: rm.removed, stripped: rm.stripped, rewired: rm.rewired, relinked: rl.relinked, relinkSkipped: rl.skipped, cleaned: cl.cleaned,
 				cleaned: cl.cleaned, cleanSeen: cl.seen, cleanMissing: cl.missing,
+				// folded 必报：折了 20 张图而返回里没有这个数，日志就会写「无变化」——
+				// 那是关于一次真实改动的假话（2026-11-26 实测：折完 40→20 张，日志显示无变化）。
+				folded: fold.folded,
 				sizeMB: +(statSync(target).size / 1048576).toFixed(1),
 				backup: backup.replace(BACKUP_ROOT + sep, "…/").split(sep).slice(-2).join("/"),
 				checks: v.checks,

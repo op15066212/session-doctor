@@ -20,6 +20,9 @@ export const KINDS = {
 	"thinking-only":       { label: "孤立思考", action: "remove", tone: "rem",  why: "只有思考、无正文无工具调用，且没有可合并的兄弟" },
 	"whitespace-only":     { label: "空白正文", action: "remove", tone: "rem",  why: "全部文本块都是空白" },
 	"unresolved-toolcall": { label: "死调用",   action: "strip",  tone: "fold", why: "工具调用没有对应的结果（中断留下的死引用）" },
+	// 链上图片超过单次请求上限（上游原文写 20 张）：每轮请求都 400，会话永久卡死。
+	// 会话本身看起来一切正常，只是再也发不出话 —— 所以它必须单独一类、单独可见。
+	"image-overflow":      { label: "图片超限", action: "fold",   tone: "fold", why: "链上图片超过单次请求上限：每轮请求都会 400，折成占位才发得出去" },
 	"dup-image":           { label: "重复图",   action: "fold",   tone: "fold", why: "同一张图在这一会话里重复出现" },
 	"big-text":            { label: "长正文",   action: "fold",   tone: "fold", why: "老轮次的长正文" },
 	"big-thinking":        { label: "长思考",   action: "fold",   tone: "fold", why: "老轮次的长思考" },
