@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>会话医生 · Session Doctor</title>
+<link rel="stylesheet" href="./app.css">
+<script>
+/*
+ * process.env.NODE_ENV 的浏览器垫片。
+ *
+ * 为什么需要：vendor/virtual-core 的 ESM 构建里保留了未替换的
+ * process.env.NODE_ENV !== "production"（正常情况由 bundler 替换）。
+ * 浏览器没有 process，会直接 ReferenceError，整个模块图崩掉。
+ *
+ * 为什么不去改 vendor 里的那几行：那是上游文件，改了之后升级要重新改一遍，
+ * 而且下次的人看不出哪里被动过。垫片放在这一处，注释写明原因。
+ *
+ * 必须**在模块脚本之前**执行：module 的 import 先于模块体运行，
+ * 放在 app.js 里已经来不及。
+ */
+globalThis.process = globalThis.process || { env: { NODE_ENV: "production" } };
+</script>
+</head>
+<body>
+<!-- 整个界面由 app.js 的组件树生成（preact + htm + TanStack virtual-core，见 vendor/NOTICE.md）。
+     这里只有一个挂载点：结构与样式在 components.js / app.css，不在这里再写一遍。 -->
+<div id="root"></div>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

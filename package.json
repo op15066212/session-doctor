@@ -1,0 +1,12 @@
+{
+  "name": "session-doctor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "会话医生：扫出 pi 会话里的图片异常并修掉。界面 + Electron 壳 + Windows 安装包。",
+  "scripts": {
+    "start": "node bin/session-doctor.mjs",
+    "check": "node gate.mjs",
+    "build": "node tools/session-doctor-installer/build-installer.mjs"
+  }
+}

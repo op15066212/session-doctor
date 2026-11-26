@@ -1,0 +1,6 @@
+{
+  "name": "session-doctor-ui",
+  "private": true,
+  "type": "module",
+  "description": "会话医生的前端（preact + htm + TanStack virtual-core）。纯静态 ESM，无构建。"
+}

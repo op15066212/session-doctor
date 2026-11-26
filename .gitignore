@@ -1,0 +1,8 @@
+# 生成物：删了重跑就有，不进仓。
+/tools/session-doctor-installer/app/
+/tools/session-doctor-installer/stage/
+/tools/session-doctor-installer/node_modules/
+/tools/session-doctor-desktop/.userdata/
+/tools/session-doctor-desktop/vendor/
+node_modules/
+*.log
