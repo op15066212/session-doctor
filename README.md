@@ -59,6 +59,28 @@ subagent-artifacts/   subagents/   pi-async/
 
 `bin/check-scan-scope.mjs` 挡这个：造一份真会话 + 一份子代理记录，断言只扫到前者。
 
+## 恢复了什么：thinking 块可以从备份回填
+
+```bash
+node bin/restore-thinking.mjs            # dry-run，只报能补多少
+node bin/restore-thinking.mjs --write    # 写盘（改前先备份到 .session-backups）
+```
+
+为什么有这个工具（2026-11-26 真发生）：摘块函数只判断「有没有块下标」、没判断 kind，
+于是「清签名」那 21942 条被当成摘块目标，把 17 个会话、共 22024 个 thinking 块**整块摘掉**；
+而当时 verify 只数签名字段 —— 签名确实归零，写盘一路绿灯。
+
+现在两条判据挡着：`verify` 里的「thinking 块数不变」（清签名只许删字段），
+和 `check-clean-signature.mjs` 的事故样本（把只有 thinking-signature 的 chosen 喂给摘块函数，块数必须一个不少）。
+
+恢复的语义写死在工具里，三条不许违反：
+
+1. 行数不变（只改既有条目的 content）；
+2. id 与 parentId 逐条不变（链不动，界面上的会话不会错位）；
+3. 只补 thinking 正文，**不补 thinkingSignature**（签名本来就是清理对象）。
+
+来源是「thinking 最多」的那份备份 —— 后来的备份可能本身就是被清过的。
+
 ## 判定逻辑不在本仓
 
 `bin/lib/session-fix.mjs` 只有一行 `export * from`，真值在 `~/.pi/agent/bin/lib/session-fix.mjs`。
@@ -79,7 +101,9 @@ bin/
     vendor/               前端依赖（preact/htm/virtual-core），直接进仓
     e2e-probe.cjs         E2E 探针
   lib/session-fix.mjs     ← 一行转发，见上
-  check-scan-scope.mjs    判据：不扫子代理记录
+  restore-thinking.mjs     从备份回填 thinking 块（改前备份，链不动）
+  check-scan-scope.mjs     判据：不扫子代理记录
+  check-restore-thinking.mjs 判据：回填只补块、不动链，且不带回签名
   check-ui-script.mjs     判据：前端每个模块都能被 node 解析
   check-ui-e2e.mjs        判据：真起 Electron，51 条断言跑一遍主流程
 tools/

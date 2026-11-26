@@ -342,6 +342,9 @@ export function findAnomalies(entries, opts = {}) {
 export function measure(lines) {
   let bad = 0; let users = 0; let asst = 0; let last = null; let sig = 0;
   const sigIds = new Set();
+  // thinking 块总数：清签名只许动字段，不许动块。2026-11-26 事故就是块被整块摘掉，
+  // 而当时没有任何判据看这个数。
+  let thinkBlocks = 0;
   // 相邻 user（链上直接相邻）：API 要求 user/assistant 交替，连续两条 user 会让请求 400。
   let adjacentUsers = 0;
   let prevUser = null;
@@ -361,6 +364,7 @@ export function measure(lines) {
     const m = e.message ?? {};
     const c = m.content;
     const empty = isEmptyContent(c);
+    if (Array.isArray(c)) for (const b of c) if (b && b.type === "thinking") thinkBlocks += 1;
     if (Array.isArray(c) && c.some((b) => b && b.type === "thinking" && typeof b.thinkingSignature === "string" && b.thinkingSignature)) { sig += 1; if (typeof e.id === "string") sigIds.add(e.id); }
     if (m.role === "user") {
       users += 1;
@@ -383,7 +387,7 @@ export function measure(lines) {
     }
   }
   return {
-    n: lines.length, bad, users, asst, last, ids: ids.size, idSet: ids, adjacentUsers, sig, sigIds,
+    n: lines.length, bad, users, asst, last, ids: ids.size, idSet: ids, adjacentUsers, sig, sigIds, thinkBlocks,
     orphan: parents.filter((p) => !ids.has(p)).length,
     // 悬空的只算**target 存在性**：指向不存在条目的 edit 不生效，删它不改语义。
     dangling: targets.filter((t) => !ids.has(t)).length,
@@ -424,6 +428,10 @@ export function verify(before, after, expect = {}) {
     // 2026-11-25 实测：会话 2026-11-20T00-42-25-558Z 有 100526 条 context_edit、其中 54 条本来
     // 就指向不存在的 targetId（另一条写入路径留下的，与清理无关），结果连「删一条空壳」都被拒。
     // 判据把既有缺陷算到本次动作头上，人就只能学会忽略它。
+    // thinking 块数不变（2026-11-26 事故补）。清签名只许删字段：
+    // 实测过一次「签名 32 → 0、清理 21958 条」而 17 个会话的 thinking 块被整块摘光 ——
+    // 签名数确实归零，所以只数签名的判据一路绿灯。块数是唯一能看出这件事的数。
+    ["thinking 块数不变", after.thinkBlocks === before.thinkBlocks, before.thinkBlocks + " → " + after.thinkBlocks],
     ["悬空 parentId 不新增", after.orphan <= before.orphan, before.orphan + " → " + after.orphan],
 	// 清签名（2026-11-26 第三次改）。为什么不能只判「签名总数下降量 == 选中数」：
 	// 同一个条目可能同时被判为「孤立思考」（删除类）—— 它被删时签名也一起消失，
@@ -501,7 +509,12 @@ export function verify(before, after, expect = {}) {
 export function applyStripBlocks(lines, entries, chosen) {
   const byKey = new Map();
   for (const a of chosen) {
-    if (a.block === null) continue;
+    // 必须按 kind 过滤，不能只看「有没有块下标」。
+    // 2026-11-26 事故：清签名（thinking-signature）的每条异常都带 block 下标，
+    // 于是它们全进了 byKey，这个函数把 17 个会话、共 22024 个 thinking 块整块摘掉 ——
+    // 而 verify 那时只数「签名总数」，签名确实归零，写盘一路绿灯。
+    // 判据补在 verify 的「thinking 块数不变」与 check-clean-signature 的坏样本里。
+    if (a.block === null || !STRIPPABLE.includes(a.kind)) continue;
     byKey.set(a.entry + ":" + a.block, a);
   }
   if (!byKey.size) return { lines, stripped: 0, emptied: 0 };
