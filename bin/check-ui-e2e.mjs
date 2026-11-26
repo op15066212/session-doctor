@@ -58,8 +58,10 @@ const PROBE_SRC = fileURLToPath(new URL("./session-doctor/e2e-probe.cjs", import
 
 const electron = findElectron();
 if (!electron) {
-	console.log("跳过：本机没找到 Electron（装一个或设 SESSION_DOCTOR_ELECTRON）。");
-	process.exit(0);
+	// rc=2 是「环境缺失」，不是「通过」。此前这里是 exit(0)，于是总闸把这条显示成
+	// 绿色 —— 判据一天没真跑过，而报告说它绿。装好后必须真跑；没装就要看得见。
+	console.error("跳过（rc=2 环境缺失）：本机没找到 Electron（装一个或设 SESSION_DOCTOR_ELECTRON）。");
+	process.exit(2);
 }
 
 // 探针目录
