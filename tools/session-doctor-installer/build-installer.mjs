@@ -31,16 +31,32 @@ const ROOT = path.resolve(HERE, "..", "..");          // ~/.pi/agent
 const APP = path.join(HERE, "app");
 const LAYOUT_ONLY = process.argv.includes("--layout");
 
+// 备份/临时文件不进产物。为什么不能只靠事后断言：本机出现过「删不掉就原地覆盖」
+// （EPERM 时 rmSync 被跳过），于是上一轮留下的 .bak 一直在 APP 里，断言每轮都红、
+// 而红的原因不是源码脏了。排除在前（保证产物干净），断言在后（挡住别的路径）。
+const JUNK = /\.(bak|orig|tmp|log|rej)$|~$/;
 const cp = (from, to) => {
   fs.mkdirSync(path.dirname(to), { recursive: true });
-  fs.cpSync(from, to, { recursive: true });
+  fs.cpSync(from, to, { recursive: true, filter: (src) => !JUNK.test(src) });
 };
 
 // ── 1 布局 ──────────────────────────────────────────
 // 为什么不是无条件 rmSync：本机实测 EPERM / EBUSY（有进程 cwd 停在这个目录里，
 // 或杀软正在扫）。删不掉就打包失败，等于把一次可恢复的占用变成阻塞。
 // 改成「能删就删，删不掉就原地覆盖」——cp 用的是 cpSync(force)，逐文件覆盖。
-try { fs.rmSync(APP, { recursive: true, force: true }); } catch { /* 占用时原地覆盖 */ }
+// 原地覆盖有个副作用：上一轮的残留不会被删。2026-11-26 实测：两个 *.bak 因此
+// 一直躺在 APP 里，下面的断言每轮都红，而红的原因根本不是源码脏了。
+// 所以站起来前先按扩展名清一遍（只清 junk，不动产物本该有的文件）。
+const sweepJunk = (dir) => {
+  let n = 0;
+  for (const d of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, d.name);
+    if (d.isDirectory()) { n += sweepJunk(p); continue; }
+    if (JUNK.test(d.name)) { try { fs.rmSync(p, { force: true }); n += 1; } catch { /* 占用：留给断言报 */ } }
+  }
+  return n;
+};
+try { fs.rmSync(APP, { recursive: true, force: true }); } catch { const swept = sweepJunk(APP); if (swept) console.log("  占用中：清掉 " + swept + " 个残留备份"); }
 fs.mkdirSync(APP, { recursive: true });
 
 cp(path.join(ROOT, "tools", "session-doctor-desktop", "main.mjs"), path.join(APP, "main.mjs"));
@@ -67,6 +83,26 @@ cp(SESSION_FIX_SRC, path.join(APP, "bin", "lib", "session-fix.mjs"));
   }
 }
 cp(path.join(ROOT, "bin", "session-doctor"), path.join(APP, "bin", "session-doctor"));
+
+// 产物里不许有编辑器/脚本留下的备份。为什么这条要在这里：
+// 2026-11-26 实测 —— 两个 *.bak 被一起拷进 app/，于是安装包里躺着
+// components.js.bak / store.js.bak（14490 字节的旧版本，没人会打开，但它进了交付物）。
+// 判据从产物反推：扫 APP 目录，命中就拒绝打包。
+{
+  const junk = [];
+  const walk = (dir) => {
+    for (const d of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, d.name);
+      if (d.isDirectory()) { walk(p); continue; }
+      if (/\.(bak|orig|tmp|log|rej)$/.test(d.name) || d.name.endsWith("~")) junk.push(path.relative(APP, p));
+    }
+  };
+  walk(APP);
+  if (junk.length) {
+    console.error("打包失败：产物里有备份/临时文件 " + junk.join(", "));
+    process.exit(1);
+  }
+}
 
 // main.mjs 的 import 是 "../../bin/session-doctor.mjs"（相对 tools/session-doctor-desktop/）。
 // 打包后它在 app/ 根，于是改成 "./bin/session-doctor.mjs"。这是**唯一**必须改的一行，

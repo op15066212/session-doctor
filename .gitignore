@@ -5,4 +5,10 @@
 /tools/session-doctor-desktop/.userdata/
 /tools/session-doctor-desktop/vendor/
 node_modules/
+# 备份/临时文件：编辑时留下过，被一起拷进安装包（2026-11-26）。
+*.bak
+*.bak.*
+*.orig
+*~
+*.rej
 *.log
