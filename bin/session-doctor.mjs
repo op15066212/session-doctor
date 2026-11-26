@@ -259,7 +259,7 @@ export function createDoctorServer() {
 			// cleanIds 必传：清签名要逐条核对「选中且仍存活的那些不再带签名」。
 			// 不传的话 verify 只按数量判，遇到「条目同时被判为孤立思考、整条被删」就会误红。
 			const cleanIds = chosen.filter((a) => CLEANABLE.includes(a.kind)).map((a) => entries[a.entry]?.id).filter((id) => typeof id === 'string');
-			const v = verify(before, after, { relinked: rl.relinked, cleaned: cl.cleaned, cleanIds, usersMerged: rm.usersMerged, asstRemoved: rm.asstRemoved, editsRevoked: rm.editsRevoked, thinkRemoved: rm.thinkRemoved, maxImages: DEFAULTS.maxImages });
+			const v = verify(before, after, { relinked: rl.relinked, cleaned: cl.cleaned, cleanIds, usersMerged: rm.usersMerged, asstRemoved: rm.asstRemoved, editsRevoked: rm.editsRevoked, thinkRemoved: rm.thinkRemoved, foldsImages: true, maxImages: DEFAULTS.maxImages });
 			if (!v.ok) {
 				json(200, { ok: false, reason: "结构判据不通过，已拒绝写盘", checks: v.checks });
 				return;
