@@ -182,14 +182,12 @@ export function Toolbar({ state, onToggleAll, onToggleActions, onToggleKind, onA
 					<input id="pickAll" type="checkbox" checked=${allFull} disabled=${busy || !allCount}
 						ref=${(el) => { if (el) el.indeterminate = allPicked > 0 && !allFull; }}
 						onChange=${() => onToggleAll()} />
-						onChange=${() => onToggleAll()} />
 					<span class="klabel">全选</span>
 					<span class="kcnt">${allPicked ? allPicked + "/" : ""}${allCount}</span>
 				</label>
 				${acts.map((a) => html`<label class=${"kindbox tone-" + a.tone} title=${a.title + "（" + scope + "）"}>
 					<input id=${"pickAct-" + a.act} type="checkbox" checked=${a.full} disabled=${busy || !a.count}
 						ref=${(el) => { if (el) el.indeterminate = a.picked > 0 && !a.full; }}
-						onChange=${() => onToggleActions(a.acts)} />
 						onChange=${() => onToggleActions(a.acts)} />
 					<span class="klabel">${a.label}</span>
 					<span class="kcnt">${a.picked ? a.picked + "/" : ""}${a.count}</span>
@@ -200,7 +198,6 @@ export function Toolbar({ state, onToggleAll, onToggleActions, onToggleKind, onA
 					<input id=${"pickKind-" + g.kind} type="checkbox" checked=${g.full} disabled=${busy}
 						ref=${(el) => { if (el) el.indeterminate = g.picked > 0 && !g.full; }}
 						onChange=${() => onToggleKind(g.kind)} />
-						onChange=${() => onToggleKind(g.kind)} />
 					<span class="klabel">${g.label}</span>
 					<span class="kcnt">${g.picked ? g.picked + "/" : ""}${g.count}</span>
 				</label>`)}
@@ -209,6 +206,47 @@ export function Toolbar({ state, onToggleAll, onToggleActions, onToggleKind, onA
 				<button id="btnApply" class="btn danger small" disabled=${p.n === 0 || busy} onClick=${onApply}>执行</button>
 			</div>
 		</div>`;
+}
+
+/* ── 可拖拉分割条 ─────────────────────────────────
+ * 为什么不用 CSS resize：那只有右下角一个把手，且不能在 grid 里只调一列。
+ * 这里两个方向各一个把手：侧栏宽度、日志高度。松手后写 localStorage，下次打开还是这个大小。
+ * 拖动期间给 body 加 .dragging：全局禁掉选中，否则拖一下就选中一片文字（实测很烦）。
+ */
+export function Splitter({ dir }) {
+	const onDown = (e) => {
+		e.preventDefault();
+		const startX = e.clientX; const startY = e.clientY;
+		const root = document.documentElement.style;
+		const side = document.querySelector('.sidebar');
+		const logEl = document.querySelector('.log');
+		const curW = side ? side.getBoundingClientRect().width : 344;
+		const curH = logEl ? logEl.getBoundingClientRect().height : 116;
+		const move = (ev) => {
+			if (dir === 'v') {
+				const w = Math.max(220, Math.min(720, curW + ev.clientX - startX));
+				root.setProperty('--side-w', w + 'px');
+				try { localStorage.setItem('sd.sideW', String(Math.round(w))); } catch { /* 隐私模式 */ }
+			} else {
+				const h = Math.max(60, Math.min(window.innerHeight * 0.72, curH - (ev.clientY - startY)));
+				root.setProperty('--log-h', h + 'px');
+				try { localStorage.setItem('sd.logH', String(Math.round(h))); } catch { /* 隐私模式 */ }
+			}
+		};
+		const up = () => {
+			document.removeEventListener('mousemove', move);
+			document.removeEventListener('mouseup', up);
+			document.body.classList.remove('dragging');
+		};
+		document.body.classList.add('dragging');
+		document.addEventListener('mousemove', move);
+		document.addEventListener('mouseup', up);
+	};
+	return html`<div class=${dir === 'v' ? 'vsplit' : 'hsplit'} onMouseDown=${onDown} title="拖动调整大小（双击复位）" onDblClick=${() => {
+		const root = document.documentElement.style;
+		if (dir === 'v') { root.removeProperty('--side-w'); try { localStorage.removeItem('sd.sideW'); } catch { /* 忽略 */ } }
+		else { root.removeProperty('--log-h'); try { localStorage.removeItem('sd.logH'); } catch { /* 忽略 */ } }
+	}} />`;
 }
 
 /* ── 虚拟列表：TanStack virtual-core ───────────── */
@@ -305,7 +343,11 @@ const items = virtualizer.getVirtualItems().filter((vi) => vi.index >= 0 && vi.i
 
 /* ── 日志 ──────────────────────────────────────── */
 export function LogPanel({ lines }) {
-	return html`<footer class="log" id="log">${lines.map((ln, i) => html`<div key=${i} dangerouslySetInnerHTML=${{ __html: ln }} />`)}</footer>`;
+	const ref = useRef(null);
+	// 日志是累加的：新行在最下面，不自动滚过去就等于看不见。
+	// 只在行数变时滚，不在每次重画时滚 —— 否则人往上翻历史时会被拽回来。
+	useEffect(() => { if (ref.current) ref.current.scrollTop = ref.current.scrollHeight; }, [lines.length]);
+	return html`<footer class="log" id="log" ref=${ref}>${lines.map((ln, i) => html`<div key=${i} dangerouslySetInnerHTML=${{ __html: ln }} />`)}</footer>`;
 }
 
 /* ── 确认框 ────────────────────────────────────── */

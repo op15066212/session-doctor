@@ -241,6 +241,12 @@ t("扫描完成显示时间戳与耗时", /\d\d:\d\d:\d\d · \d+\.\ds/.test(res.
 	t("聚合行显示真实条数", /×\d+/.test(String(res.afterScan.log || "")) || res.afterScan.rowCount > 0,
 		"视口 " + res.afterScan.rowCount);
 }
+// 分割条（2026-11-26 用户要求「我要可以自己拉大小」）：两条在、拖动后尺寸写进 CSS 变量、记住到 localStorage。
+// 反例：只放个 div 没绑 onMouseDown —— 看得见拉不动，判据要能看到这一点。
+t("两条分割条都在", res.afterScan.vsplits === 1 && res.afterScan.hsplits === 1, "竖 " + res.afterScan.vsplits + " 横 " + res.afterScan.hsplits);
+t("拖动后尺寸写进 CSS 变量并记住",
+  res.afterDrag.sideW !== null && res.afterDrag.logH !== null && res.afterDrag.remembered === true,
+  "侧栏 " + res.afterDrag.sideW + " 日志 " + res.afterDrag.logH + " 记住 " + res.afterDrag.remembered);
 t("顶栏文件数已填", res.afterScan.nFiles !== null && res.afterScan.nFiles !== "—", res.afterScan.nFiles);
 t("顶栏异常数已填", res.afterScan.nAnom !== null && res.afterScan.nAnom !== "—", res.afterScan.nAnom);
 
@@ -413,11 +419,17 @@ t("全不选连点两次归零",
 {
 	const log = String(res.afterRealApplySettled.log || "");
 	const iDone = log.indexOf("✓ 完成");
-	const iScan = log.indexOf("扫描完成");
 	t("真执行写盘成功", iDone >= 0, log.slice(0, 120));
-	t("执行结果不被扫描行覆盖（执行在前、扫描在后）",
-		iDone >= 0 && iScan > iDone,
-		"完成@" + iDone + " 扫描@" + iScan);
+	// 日志是累加的（2026-11-26 用户要求「日志一直累加才对」），「扫描完成」会出现多次；
+	// 判的是「执行结果之后紧跟着有一次重扫」，而不是「全局第一次扫描完成在它后面」。
+	const iScanAfter = iDone >= 0 ? log.indexOf("扫描完成", iDone) : -1;
+	t("执行结果之后跟着那次重扫（不被覆盖）",
+		iDone >= 0 && iScanAfter > iDone,
+		"完成@" + iDone + " 其后的扫描完成@" + iScanAfter);
+	// 累加本身也要判：多次扫描的开头行必须都还在，否则「累加」只是说法。
+	t("日志累加：多次扫描的开头行都还在",
+		(log.match(/扫描开始/g) || []).length >= 2,
+		"扫描开始 " + (log.match(/扫描开始/g) || []).length + " 次");
 	t("执行后异常数下降（列表与磁盘一致）",
 		Number(res.afterRealApplySettled.nAnom) < Number(res.beforeRealApply.nAnom),
 		"前 " + res.beforeRealApply.nAnom + " → 后 " + res.afterRealApplySettled.nAnom);

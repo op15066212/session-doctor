@@ -9,7 +9,15 @@ import htm from "./vendor/htm.mjs";
 import { api } from "./api.js";
 import { PHASE, ALL, getState, setState, subscribe, togglePick, toggleAll, toggleActions, toggleKind, groupPicks } from "./store.js";
 import { fmtMB, fmtClock } from "./format.js";
-import { TopBar, ErrorBar, WarnBar, StatusBar, Sidebar, Toolbar, RowList, LogPanel, ConfirmDialog } from "./components.js";
+import { TopBar, ErrorBar, WarnBar, StatusBar, Sidebar, Toolbar, RowList, LogPanel, Splitter, ConfirmDialog } from "./components.js";
+
+// 记住上次拖出来的分割位置：侧栏宽度、日志高度。读不到就用 CSS 默认值。
+try {
+	const w = localStorage.getItem("sd.sideW");
+	if (w) document.documentElement.style.setProperty("--side-w", w + "px");
+	const h = localStorage.getItem("sd.logH");
+	if (h) document.documentElement.style.setProperty("--log-h", h + "px");
+} catch { /* 隐私模式：忽略 */ }
 
 const html = htm.bind(h);
 
@@ -18,6 +26,16 @@ let ui = { asking: false, log: ["就绪。点右上角「重新扫描」开始�
 function setUi(patch) {
 	ui = { ...ui, ...patch };
 	repaint();
+}
+
+/** 日志上限：只截头不截尾 —— 最近发生的必须在最下面看得见。 */
+const LOG_MAX = 400;
+
+/** 追加日志（唯一写入口）。任何地方都不许再用 setUi({ log: ... }) 覆盖。 */
+function pushLog(lines) {
+	const add = (Array.isArray(lines) ? lines : [lines]).filter(Boolean);
+	if (!add.length) return;
+	setUi({ log: [...ui.log, ...add].slice(-LOG_MAX) });
 }
 
 function repaint() {
@@ -33,12 +51,14 @@ function App({ state, ui }) {
 		<${StatusBar} state=${state} />
 		<main class="body">
 			<${Sidebar} state=${state} onSelect=${selectFile} />
+			<${Splitter} dir="v" />
 			<section class="panel">
 				<${Toolbar} state=${state} onToggleAll=${toggleAll} onToggleActions=${toggleActions}
 				onToggleKind=${toggleKind} onApply=${askApply} />
 				<${RowList} key=${"cur:" + state.cur} state=${state} onToggle=${(a, on) => togglePick(a.fileIdx, a, on)} />
 			</section>
 		</main>
+		<${Splitter} dir="h" />
 		<${LogPanel} lines=${ui.log} />
 		<${ConfirmDialog}
 			open=${ui.asking}
@@ -88,7 +108,8 @@ async function runScan(opts = {}) {	scanning = true;
 	const my = ++scanSeq;
 	const t0 = performance.now();
 	setState({ phase: PHASE.SCAN, error: "", progress: { done: 0, total: 0, note: "正在读会话文件…" } });
-	if (!opts.append) setUi({ log: ["正在扫描…（大文件要几秒）"] });
+	// 扫描开始只追加一行分隔：覆盖式会把人刚要看的执行结果擦掉。
+	if (!opts.append) pushLog(["—— 扫描开始 " + fmtClock() + " ——"]);
 
 	try {
 		const res = await api.scan();
@@ -98,7 +119,7 @@ async function runScan(opts = {}) {	scanning = true;
 
 		if (!res.ok) {
 			setState({ phase: PHASE.ERROR, error: res.error, warn: "", progress: null });
-			setUi({ log: ['<span class="no">扫描失败</span>  ' + res.error] });
+			pushLog(['<span class="no">扫描失败</span>  ' + res.error]);
 			return;
 		}
 		const ms = Math.round(performance.now() - t0);
@@ -112,7 +133,7 @@ async function runScan(opts = {}) {	scanning = true;
 			stamp: fmtClock(), durationMs: ms, progress: null, error: "", warn: "",
 		});
 		const line = "扫描完成：" + res.data.length + " 个文件，" + n + " 条异常（用时 " + ms + " ms）。";
-		setUi({ log: opts.append ? [...ui.log, line] : [line] });
+		pushLog([line]);
 	} finally {
 		// 只有最新那一次扫描才有权把锁放掉：老的那次放锁，会让第二次扫描的标志被清掉。
 		if (my === scanSeq) scanning = false;
@@ -168,15 +189,13 @@ async function doApply() {	if (applying) return;
 			const why = (r.reason || "") + (red ? "\n      " + red : "");
 			lines.push('<span class="no">✕ 拒绝</span>  ' + g.name.slice(0, 30) + "  " +
 				(why.trim() || "未给出原因（这条本身是缺陷：拒绝必须说出哪条判据红了）"));
-			}
 		}
-		setState({ picks: new Set() });
-
+		}
 		// 先落日志，再重扫（append）：顺序颠倒的话「扫描完成」会盖掉执行结果。
 		// 扫描/执行之后**必须重扫**：列表还停在执行前，磁盘已经不是那样了 ——
 		// 之前只在全成功时重扫，于是「有拒绝」的那一次列表永远比磁盘多几条，
 		// 人再点一次执行，就是在对已经不存在的条目动手。
-		setUi({ log: lines });
+		pushLog(lines);
 		await runScan({ append: true });
 
 		if (failed) {

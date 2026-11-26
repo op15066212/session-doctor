@@ -144,7 +144,7 @@ body::before {
 @keyframes pulse { 50% { opacity: .25; } }
 
 /* ── 主体 ───────────────────────────────────────────── */
-.body { display: grid; grid-template-columns: 344px 1fr; min-height: 0; overflow: hidden; background: var(--bg-soft); }
+.body { display: grid; grid-template-columns: var(--side-w, 344px) 6px 1fr; min-height: 0; overflow: hidden; background: var(--bg-soft); }
 .sidebar { overflow-y: auto; padding: 10px; border-right: 1px solid var(--line); }
 .files { display: flex; flex-direction: column; gap: 5px; }
 
@@ -229,12 +229,20 @@ body::before {
 
 /* ── 日志 ───────────────────────────────────────────── */
 .log {
-  height: 116px; overflow-y: auto; padding: 11px 22px;
+  height: var(--log-h, 116px); overflow-y: auto; padding: 11px 22px;
   border-top: 1px solid var(--line); background: #fff;
   font: 12px/1.8 ui-monospace, "SF Mono", Consolas, monospace;
   color: var(--fg-2); white-space: pre-wrap;
 }
 .log .ok { color: var(--green); font-weight: 700; }
+
+/* 分割条：6px 细条，命中区域靠 padding 撑到 10px，鼠标好抓但视觉不抢。 */
+.vsplit, .hsplit { background: var(--line); position: relative; z-index: 5; }
+.vsplit { cursor: col-resize; }
+.hsplit { cursor: row-resize; height: 6px; }
+.vsplit:hover, .hsplit:hover, body.dragging .vsplit, body.dragging .hsplit { background: #2563eb; }
+body.dragging { user-select: none; cursor: col-resize; }
+body.dragging * { pointer-events: none; }
 .log .no { color: var(--red); font-weight: 700; }
 
 /* ── 确认框 ─────────────────────────────────────────── */

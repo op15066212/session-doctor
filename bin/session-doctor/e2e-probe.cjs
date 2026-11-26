@@ -39,6 +39,7 @@ app.whenReady().then(async () => {
 		if (Number(level) >= 2 && !String(msg).includes("Security Warning")) result.errors.push(String(msg));
 	});
 
+	// 页面里的异常必须看得见：判据只报「按钮没起来」时，无从知道是渲染崩了还是逻辑崩了。
 	await win.loadURL(URL_);
 	const js = (code) => win.webContents.executeJavaScript(code);
 	const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -79,6 +80,8 @@ app.whenReady().then(async () => {
 			wideRows: document.querySelectorAll('.row.wide').length,
 			fileCols: document.querySelectorAll('.row .file').length,
 			applyDisabled: q('#btnApply') ? q('#btnApply').disabled : null,
+			vsplits: document.querySelectorAll(".vsplit").length,
+			hsplits: document.querySelectorAll(".hsplit").length,
 			dlgOpen: Boolean(q('.mask.on')),
 			errOn: Boolean(q('.errbar.on')),
 			errBarOn: q('.errbar') ? q('.errbar').className.includes('on') : null,
@@ -86,6 +89,7 @@ app.whenReady().then(async () => {
 			warnOn: Boolean(q('.warnbar.on')),
 			warnMsg: (q('#warnMsg') ? q('#warnMsg').textContent : '').slice(0, 60),
 			dotCls: (q('#scanDot') ? q('#scanDot').className : ''),
+			errs: (window.__errs || []).slice(0, 5),
 			log: (q('#log') ? q('#log').textContent : '').slice(0, 800),
 			logLines: document.querySelectorAll('#log > div').length,
 			dlgText: q('.dlg') ? q('.dlg').textContent.slice(0, 120) : null,
@@ -152,6 +156,26 @@ app.whenReady().then(async () => {
 	try {
 		result.res.initial = await read();
 		result.res.afterScan = await waitIdle();
+		// 拖动实验：用真实 mouse 事件驱动，不是直接改样式 —— 判的是「绑没绑事件」。
+		await step("dragSplit", `(async () => {
+			const v = document.querySelector(".vsplit");
+			if (v) {
+				const r = v.getBoundingClientRect();
+				v.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: r.left + 2, clientY: r.top + 20 }));
+				document.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: r.left + 62, clientY: r.top + 20 }));
+				document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+			}
+			const h = document.querySelector(".hsplit");
+			if (h) {
+				const r2 = h.getBoundingClientRect();
+				h.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: r2.left + 20, clientY: r2.top + 2 }));
+				document.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: r2.left + 20, clientY: r2.top - 48 }));
+				document.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+			}
+			return null;
+		})()`);
+		await wait(300);
+		result.res.afterDrag = await step("readDrag", "(function(){var cs=getComputedStyle(document.documentElement);return {sideW:cs.getPropertyValue('--side-w').trim()||null,logH:cs.getPropertyValue('--log-h').trim()||null,remembered:Boolean(localStorage.getItem('sd.sideW')&&localStorage.getItem('sd.logH'))};})()");
 
 		// 所有页面交互都走 step：任何一步抛错都能说出是哪一步，
 		// 而不会变成一条指不到位置的 fatal。

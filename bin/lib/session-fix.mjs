@@ -341,6 +341,7 @@ export function findAnomalies(entries, opts = {}) {
 /** 结构判据：不满足就说明这一步改动坏了文件，调用方必须拒绝写盘。 */
 export function measure(lines) {
   let bad = 0; let users = 0; let asst = 0; let last = null; let sig = 0;
+  const sigIds = new Set();
   // 相邻 user（链上直接相邻）：API 要求 user/assistant 交替，连续两条 user 会让请求 400。
   let adjacentUsers = 0;
   let prevUser = null;
@@ -360,7 +361,7 @@ export function measure(lines) {
     const m = e.message ?? {};
     const c = m.content;
     const empty = isEmptyContent(c);
-    if (Array.isArray(c) && c.some((b) => b && b.type === "thinking" && typeof b.thinkingSignature === "string" && b.thinkingSignature)) sig += 1;
+    if (Array.isArray(c) && c.some((b) => b && b.type === "thinking" && typeof b.thinkingSignature === "string" && b.thinkingSignature)) { sig += 1; if (typeof e.id === "string") sigIds.add(e.id); }
     if (m.role === "user") {
       users += 1;
       // 链上直接相邻：这一条的 parentId 正好是上一条 user 的 id
@@ -382,7 +383,7 @@ export function measure(lines) {
     }
   }
   return {
-    n: lines.length, bad, users, asst, last, ids: ids.size, idSet: ids, adjacentUsers, sig,
+    n: lines.length, bad, users, asst, last, ids: ids.size, idSet: ids, adjacentUsers, sig, sigIds,
     orphan: parents.filter((p) => !ids.has(p)).length,
     // 悬空的只算**target 存在性**：指向不存在条目的 edit 不生效，删它不改语义。
     dangling: targets.filter((t) => !ids.has(t)).length,
@@ -424,9 +425,22 @@ export function verify(before, after, expect = {}) {
     // 就指向不存在的 targetId（另一条写入路径留下的，与清理无关），结果连「删一条空壳」都被拒。
     // 判据把既有缺陷算到本次动作头上，人就只能学会忽略它。
     ["悬空 parentId 不新增", after.orphan <= before.orphan, before.orphan + " → " + after.orphan],
-    // 清签名字数判据（2026-11-26）：清掉的条数必须正好等于选中条数；多清一条就红。
-    // 反例：applyClean 顺手把整个 thinking 块也删了 —— 条数对得上，正文却丢了，由下面的「正文不变」判据兜。
-    ["清签名条数 == 选中条数", before.sig - after.sig === (expect.cleaned ?? 0), before.sig + " → " + after.sig + "，清 " + (expect.cleaned ?? 0)],
+	// 清签名（2026-11-26 第三次改）。为什么不能只判「签名总数下降量 == 选中数」：
+	// 同一个条目可能同时被判为「孤立思考」（删除类）—— 它被删时签名也一起消失，
+	// 于是总数下降量大于清掉的条数，判据把「删对了」判成红。三个文件就这样被挡住写不进去。
+	// 两条判据，都带「没传 cleanIds 就退回数量口径」的退路 —— 不传不是错，是另一种调用方。
+	//   ① 清掉的数不超过选中数（传了 cleanIds 才有意义）；
+	//   ② 逐条核对：选中且在结果里仍存活的，不得再带签名。
+	// 反例：applyClean 顺手把整个 thinking 块也删了 —— 条数对得上，正文却丢了，由「正文不变」那条兜。
+	["清签名不超过选中数",
+		expect.cleanIds === undefined ? (expect.cleaned ?? 0) >= 0 : (expect.cleaned ?? 0) <= expect.cleanIds.length,
+		"清 " + (expect.cleaned ?? 0) + (expect.cleanIds === undefined ? "（未传选中集）" : " / 选中 " + expect.cleanIds.length)],
+	["选中的条目清完不再带签名",
+		expect.cleanIds === undefined ? before.sig - after.sig === (expect.cleaned ?? 0) : expect.cleanIds.every((id) => !after.idSet.has(id) || !(after.sigIds ?? new Set()).has(id)),
+		expect.cleanIds === undefined ? before.sig + " → " + after.sig : String(expect.cleanIds.filter((id) => after.idSet.has(id) && (after.sigIds ?? new Set()).has(id)).length) + " 条还带着"],
+	["选中的条目清完不再带签名",
+		(expect.cleanIds ?? []).every((id) => !after.idSet.has(id) || !(after.sigIds ?? new Set()).has(id)),
+		String((expect.cleanIds ?? []).filter((id) => after.idSet.has(id) && (after.sigIds ?? new Set()).has(id)).length) + " 条还带着"],
     // 接链判据（2026-11-26）：选了 N 条接链，悬空数必须正好降 N。
     // 反例：接错父（把节点接到自己的后代上）会成环 —— 那条由 unreachable 判据兜，这里只管悬空归零。
     ["悬空减少量 == 接链数", before.orphan - after.orphan === (expect.relinked ?? 0), before.orphan + " → " + after.orphan + "，接链 " + (expect.relinked ?? 0)],
@@ -519,19 +533,20 @@ export function applyStripBlocks(lines, entries, chosen) {
  *  所以它单独一类、单独一个勾选框 —— 要清的人自己勾，别混进「删/折」里。 */
 export function applyClean(lines, entries, chosen) {
   const picked = chosen.filter((a) => CLEANABLE.includes(a.kind));
-  if (!picked.length) return { lines, cleaned: 0 };
+  if (!picked.length) return { lines, cleaned: 0, seen: 0, missing: 0 };
   const want = new Set();
   for (const a of picked) {
     const e = entries[a.entry];
     if (e && typeof e.id === "string") want.add(e.id);
   }
-  if (!want.size) return { lines, cleaned: 0 };
-  let cleaned = 0;
+  if (!want.size) return { lines, cleaned: 0, seen: 0, missing: 0 };
+  let cleaned = 0; let seen = 0;
   const out = [];
   for (const line of lines) {
     let e;
     try { e = JSON.parse(line); } catch { out.push(line); continue; }
     if (!e || typeof e.id !== "string" || !want.has(e.id) || !Array.isArray(e.message?.content)) { out.push(line); continue; }
+    seen += 1;
     let hit = false;
     for (const b of e.message.content) {
       if (b && b.type === "thinking" && typeof b.thinkingSignature === "string" && b.thinkingSignature) {
@@ -543,7 +558,10 @@ export function applyClean(lines, entries, chosen) {
     cleaned += 1;
     out.push(JSON.stringify(e));
   }
-  return { lines: out, cleaned };
+  // seen = 选中条目在本次读到的文件里出现了几个；missing = 选中了却找不到的条数。
+  // 2026-11-26 实测：判据只报「清 0」时无法区分「没清」与「选中条目已被别的规则删掉」，
+  // 人只能猜。把这两个数报出来，红的时候原因就在眼前。
+  return { lines: out, cleaned, seen, missing: want.size - seen };
 }
 
 /** 接链：不删任何字节，只把悬空条目的 parentId 指回「时间上紧邻的前一条」。
