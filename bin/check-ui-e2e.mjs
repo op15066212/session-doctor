@@ -264,7 +264,7 @@ t("点汇总卡回到全部视图", res.backToAll.summarySel === true && res.bac
 
 // ── 勾选 ──
 t("勾选全部可删后顶栏有数字", Number(res.afterPickRemove.nPick) > 0, res.afterPickRemove.nPick);
-t("勾选后执行按钮可用", res.afterPickRemove.applyDisabled === false);
+t("勾选后执行按钮可用", res.afterPickRemove.applyDisabled === false, "btnApply=" + res.afterPickRemove.btnApplyId + " ids=" + String(res.afterPickRemove.actIds).slice(0, 160) + " nPick=" + res.afterPickRemove.nPick);
 t("全不选后顶栏归零", res.afterClear.nPick === "0", res.afterClear.nPick);
 t("全不选后执行按钮禁用", res.afterClear.applyDisabled === true);
 t("单条勾选生效", res.afterOnePick.nPick === "1", res.afterOnePick.nPick);
@@ -391,9 +391,11 @@ t("批量按钮文案写明作用范围",
 	/此文件/.test(String(res.fileScope.pickRemoveText || "")) && /全部/.test(String(res.backAllTwice.pickRemoveText || "")),
 	"单文件：" + res.fileScope.pickRemoveText + " / 全部：" + res.backAllTwice.pickRemoveText);
 
-t("批量勾选连点两次不翻倍（replace 语义）",
-	Number(res.pickedTwice.nPick) === Number(res.pickedInFile.nPick),
-	"一次 " + res.pickedInFile.nPick + " / 两次 " + res.pickedTwice.nPick);
+// 复选框是 toggle 语义：第一次清空、第二次回到原样。若两次点击被合并成一次，
+// 第二次就不会回到原样，这条会红（2026-11-26 实测：同帧双击确实只生效一次）。
+t("批量勾选连点两次：第一次清空、第二次回到原样",
+  String(res.pickedTwice1.nPick) === "0" && Number(res.pickedTwice.nPick) === Number(res.pickedInFile.nPick),
+  "第一次后 " + res.pickedTwice1.nPick + " / 第二次后 " + res.pickedTwice.nPick + " / 起点 " + res.pickedInFile.nPick);
 
 t("全不选连点两次归零",
 	String(res.clearedTwice.nPick) === "0",

@@ -37,7 +37,10 @@ const cp = (from, to) => {
 };
 
 // ── 1 布局 ──────────────────────────────────────────
-fs.rmSync(APP, { recursive: true, force: true });
+// 为什么不是无条件 rmSync：本机实测 EPERM / EBUSY（有进程 cwd 停在这个目录里，
+// 或杀软正在扫）。删不掉就打包失败，等于把一次可恢复的占用变成阻塞。
+// 改成「能删就删，删不掉就原地覆盖」——cp 用的是 cpSync(force)，逐文件覆盖。
+try { fs.rmSync(APP, { recursive: true, force: true }); } catch { /* 占用时原地覆盖 */ }
 fs.mkdirSync(APP, { recursive: true });
 
 cp(path.join(ROOT, "tools", "session-doctor-desktop", "main.mjs"), path.join(APP, "main.mjs"));

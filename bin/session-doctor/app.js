@@ -7,7 +7,7 @@
 import { h, render } from "./vendor/preact.mjs";
 import htm from "./vendor/htm.mjs";
 import { api } from "./api.js";
-import { PHASE, ALL, getState, setState, subscribe, togglePick, pickKinds, toggleKind, groupPicks } from "./store.js";
+import { PHASE, ALL, getState, setState, subscribe, togglePick, toggleAll, toggleActions, toggleKind, groupPicks } from "./store.js";
 import { fmtMB, fmtClock } from "./format.js";
 import { TopBar, ErrorBar, WarnBar, StatusBar, Sidebar, Toolbar, RowList, LogPanel, ConfirmDialog } from "./components.js";
 
@@ -34,9 +34,8 @@ function App({ state, ui }) {
 		<main class="body">
 			<${Sidebar} state=${state} onSelect=${selectFile} />
 			<section class="panel">
-				<${Toolbar} state=${state} onPickKinds=${pickKinds} onToggleKind=${toggleKind} onClear=${
-					() => setState({ picks: new Set() })
-				} onApply=${askApply} />
+				<${Toolbar} state=${state} onToggleAll=${toggleAll} onToggleActions=${toggleActions}
+				onToggleKind=${toggleKind} onApply=${askApply} />
 				<${RowList} key=${"cur:" + state.cur} state=${state} onToggle=${(a, on) => togglePick(a.fileIdx, a, on)} />
 			</section>
 		</main>

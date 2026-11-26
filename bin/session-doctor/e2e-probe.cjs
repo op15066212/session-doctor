@@ -78,7 +78,7 @@ app.whenReady().then(async () => {
 			rowTagCount: rows.filter((r) => r.querySelector('.tag')).length,
 			wideRows: document.querySelectorAll('.row.wide').length,
 			fileCols: document.querySelectorAll('.row .file').length,
-			applyDisabled: btns[3] ? btns[3].disabled : null,
+			applyDisabled: q('#btnApply') ? q('#btnApply').disabled : null,
 			dlgOpen: Boolean(q('.mask.on')),
 			errOn: Boolean(q('.errbar.on')),
 			errBarOn: q('.errbar') ? q('.errbar').className.includes('on') : null,
@@ -89,8 +89,10 @@ app.whenReady().then(async () => {
 			log: (q('#log') ? q('#log').textContent : '').slice(0, 800),
 			logLines: document.querySelectorAll('#log > div').length,
 			dlgText: q('.dlg') ? q('.dlg').textContent.slice(0, 120) : null,
-			pickRemoveText: q('#pickRemove') ? q('#pickRemove').textContent : null,
-			pickFoldText: q('#pickFold') ? q('#pickFold').textContent : null,
+			actIds: Array.from(document.querySelectorAll(".toolbar.kinds input")).map((i) => i.id).join(",").slice(0, 260),
+			btnApplyId: Boolean(q("#btnApply")),
+			pickRemoveText: q('#pickAct-remove') && q('#pickAct-remove').closest('label') ? q('#pickAct-remove').closest('label').getAttribute('title') : null,
+			pickFoldText: q('#pickAct-fold') && q('#pickAct-fold').closest('label') ? q('#pickAct-fold').closest('label').getAttribute('title') : null,
 			selInfo: q('#selInfo') ? q('#selInfo').textContent : null,
 			spacerH: spacer ? spacer.style.height : null,
 			// 总条数 = 占位高度 / 行高。行高不在这里写死：界面把它挂在 .vwrap[data-row] 上，
@@ -165,11 +167,11 @@ app.whenReady().then(async () => {
 		await wait(500);
 		result.res.backToAll = await read();
 
-		await step("pickRemove", "(() => { const b = document.querySelectorAll('.toolbar .btn')[0]; if (b) b.click(); return null; })()");
+		await step("pickRemove", "(() => { const b = document.querySelector('#pickAct-remove'); if (b) b.click(); return null; })()");
 		await wait(500);
 		result.res.afterPickRemove = await read();
 
-		await step("pickNone", "(() => { const b = document.querySelectorAll('.toolbar .btn')[2]; if (b) b.click(); return null; })()");
+		await step("pickNone", "(() => { const b = document.querySelector('#pickAll'); if (b) { if (!b.checked) b.click(); b.click(); } return null; })()");
 		await wait(500);
 		result.res.afterClear = await read();
 
@@ -177,7 +179,7 @@ app.whenReady().then(async () => {
 		await wait(500);
 		result.res.afterOnePick = await read();
 
-		await step("askApply", "(() => { const b = document.querySelectorAll('.toolbar .btn')[3]; if (b && !b.disabled) b.click(); return null; })()");
+		await step("askApply", "(() => { const b = document.querySelector('#btnApply'); if (b && !b.disabled) b.click(); return null; })()");
 		await wait(600);
 		result.res.afterApplyClick = await read();
 
@@ -187,7 +189,7 @@ app.whenReady().then(async () => {
 
 		// 部分失败：让 /apply 返回「结构判据不通过」，界面必须走黄色警告条、不能走红色连接错。
 		// 这是用户真实撞到的形状（悬空 context_edit:54 被显示成「连不上本地服务」）。
-		await step("fakeApplyFail", "(() => { window.__of3 = window.fetch; window.fetch = (u, o) => (String(u).indexOf('/apply') >= 0 ? Promise.resolve(new Response(JSON.stringify({ ok: false, reason: '结构判据不通过', checks: [['悬空 context_edit', false, 54]] }), { status: 200, headers: { 'content-type': 'application/json' } })) : window.__of3(u, o)); const bs = document.querySelectorAll('.toolbar .btn'); if (bs[3] && !bs[3].disabled) bs[3].click(); return null; })()");
+		await step("fakeApplyFail", "(() => { window.__of3 = window.fetch; window.fetch = (u, o) => (String(u).indexOf('/apply') >= 0 ? Promise.resolve(new Response(JSON.stringify({ ok: false, reason: '结构判据不通过', checks: [['悬空 context_edit', false, 54]] }), { status: 200, headers: { 'content-type': 'application/json' } })) : window.__of3(u, o)); const bs = document.querySelector('#btnApply'); if (bs && !bs.disabled) bs.click(); return null; })()");
 		await wait(600);
 		await step("confirmApply", "(() => { const b = document.querySelector('.dlg .btn.danger'); if (b) b.click(); return null; })()");
 		await wait(1500);
@@ -200,7 +202,9 @@ app.whenReady().then(async () => {
 		// ── 重复运行：同一个动作连做多次，结果必须一致 ──
 		// 用户原话：「每一个功能，重复运行的时候，都有问题，特别是前端问题很大。」
 		// 下面每一步都是一个功能连做两次：数字要一样、不翻倍、不叠加、日志不被覆盖。
-		await step("clearBeforeRepeat", "(() => { const b = document.querySelectorAll('.toolbar .btn')[2]; if (b) b.click(); return null; })()");
+		await step("clearBeforeRepeat1", "(() => { const b = document.querySelector('#pickAll'); if (b) b.click(); return null; })()");
+		await wait(250);
+		await step("clearBeforeRepeat", "(() => { const b = document.querySelector('#pickAll'); if (b) b.click(); return null; })()");
 		await wait(300);
 
 		// ① 同一帧连点两次「重新扫描」：必须只扫一次（互斥），数字与上一次相同。
@@ -228,17 +232,22 @@ app.whenReady().then(async () => {
 })()`);
 		await wait(500);
 		result.res.fileScope = await read();
-		await step("pickRemoveInFile", "(() => { const b = document.querySelector('#pickRemove'); if (b) b.click(); return null; })()");
+		await step("pickRemoveInFile", "(() => { const b = document.querySelector('#pickAct-remove'); if (b) b.click(); return null; })()");
 		await wait(300);
 		result.res.pickedInFile = await read();
 
-		// ④ 连点两次批量勾选：replace 语义，勾选数不翻倍、不叠加。
-		await step("pickRemoveTwice", "(() => { const b = document.querySelector('#pickRemove'); if (b) { b.click(); b.click(); } return null; })()");
+		// ④ 连点两次批量勾选（复选框是 toggle 语义）：第一次清空、第二次回到原样。
+		await step("pickRemoveTwice1", "(() => { const b = document.querySelector('#pickAct-remove'); if (b) b.click(); return null; })()");
+		await wait(250);
+		result.res.pickedTwice1 = await read();
+		await step("pickRemoveTwice", "(() => { const b = document.querySelector('#pickAct-remove'); if (b) b.click(); return null; })()");
 		await wait(300);
 		result.res.pickedTwice = await read();
 
 		// ⑤ 连点两次「全不选」：必须是 0，且不残留。
-		await step("clearTwice", "(() => { const b = document.querySelectorAll('.toolbar .btn')[2]; if (b) { b.click(); b.click(); } return null; })()");
+		await step("clearTwice1", "(() => { const b = document.querySelector('#pickAll'); if (b) b.click(); return null; })()");
+		await wait(250);
+		await step("clearTwice", "(() => { const b = document.querySelector('#pickAll'); if (b) b.click(); return null; })()");
 		await wait(300);
 		result.res.clearedTwice = await read();
 
@@ -248,10 +257,10 @@ app.whenReady().then(async () => {
 		result.res.backAllTwice = await read();
 
 		// ⑦ 真执行（沙箱副本上写盘）：勾可删 → 执行 → 确认 → 等 idle。
-		await step("pickRemoveAll", "(() => { const b = document.querySelector('#pickRemove'); if (b) b.click(); return null; })()");
+		await step("pickRemoveAll", "(() => { const b = document.querySelector('#pickAct-remove'); if (b) b.click(); return null; })()");
 		await wait(400);
 		result.res.beforeRealApply = await read();
-		await step("openApplyDlg", "(() => { const b = document.querySelectorAll('.toolbar .btn')[3]; if (b && !b.disabled) b.click(); return null; })()");
+		await step("openApplyDlg", "(() => { const b = document.querySelector('#btnApply'); if (b && !b.disabled) b.click(); return null; })()");
 		await wait(500);
 		result.res.applyDlg = await read();
 		await step("confirmRealApply", "(() => { const b = document.querySelector('.dlg .btn.danger'); if (b) b.click(); return null; })()");
@@ -260,7 +269,7 @@ app.whenReady().then(async () => {
 		result.res.afterRealApplySettled = await read();
 
 		// ⑧ 执行完再执行一次：已经没有勾选，按钮必须禁用，且不发请求。
-		await step("applyAgainNoPick", "(() => { const b = document.querySelectorAll('.toolbar .btn')[3]; if (b && !b.disabled) b.click(); return null; })()");
+		await step("applyAgainNoPick", "(() => { const b = document.querySelector('#btnApply'); if (b && !b.disabled) b.click(); return null; })()");
 		await wait(500);
 		result.res.applyAgain = await read();
 

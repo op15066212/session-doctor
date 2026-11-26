@@ -12,7 +12,7 @@
  *                     └─err→ error
  */
 
-import { actionOf, metaOf } from "./kinds.js";
+import { actionOf, metaOf, ACTIONS } from "./kinds.js";
 
 export const PHASE = {
 	IDLE: "idle",
@@ -63,6 +63,15 @@ export function setState(patch) {
 /** 勾选键：必须含文件下标。全局视图里同一个 entry 号在不同文件里是不同东西。 */
 export function pickKey(fileIdx, a) {
 	return fileIdx + "|" + a.entry + ":" + (a.block === null || a.block === undefined ? "e" : a.block);
+}
+
+/** 当前视图的作用域：全部视图遍及所有文件，单文件视图只有那一份。
+ *  抽成一处的原因：勾选、统计、批量选都读它；各写一遍必然有一处忘记 follow 当前视图。
+ */
+function scopeOf(s = state) {
+	return s.cur === ALL
+		? s.files.map((f, fi) => [f, fi])
+		: (s.files[s.cur] ? [[s.files[s.cur], s.cur]] : []);
 }
 
 /** 当前视图要显示的异常（每条带 fileIdx / fileName）。 */
@@ -156,9 +165,7 @@ export function pickKinds(actions) {
  *  full = 这一类在当前视图里全被勾上（复选框只在三态都一致时才叫「全选」）。
  */
 export function kindGroups(s = state) {
-	const scope = s.cur === ALL
-		? s.files.map((f, fi) => [f, fi])
-		: (s.files[s.cur] ? [[s.files[s.cur], s.cur]] : []);
+	const scope = scopeOf(s);
 	const map = new Map();
 	for (const [f, fi] of scope) {
 		for (const a of f.anomalies || []) {
@@ -178,13 +185,55 @@ export function kindGroups(s = state) {
 	return out;
 }
 
+/** 按动作分组统计（给「全部可删/可折/可接/可清」四个复选框）。
+ *  count 用真实条数（聚合项算 count 条），否则复选框写 1、实际两万条。
+ */
+export function actionGroups(s = state) {
+	const map = new Map();
+	for (const [f, fi] of scopeOf(s)) {
+		for (const a of f.anomalies || []) {
+			const act = actionOf(a.kind);
+			if (!ACTIONS[act]) continue;
+			const n = a.aggregate ? a.count : 1;
+			let g = map.get(act);
+			if (!g) { g = { act, ...ACTIONS[act], count: 0, picked: 0 }; map.set(act, g); }
+			g.count += n;
+			if (s.picks.has(pickKey(fi, a))) g.picked += n;
+		}
+	}
+	const out = [];
+	for (const g of map.values()) out.push({ ...g, full: g.picked >= g.count });
+	return out;
+}
+
+/** 三态勾选一组动作：这一类已全选就整个取消，否则整个勾上。
+ *  用 toggle 而不是 replace 的原因：replace 会在人勾了第 5 类之后把前 4 类清掉。
+ */
+export function toggleActions(acts) {
+	const want = [];
+	for (const [f, fi] of scopeOf()) for (const a of f.anomalies || []) {
+		if (acts.includes(actionOf(a.kind))) want.push([fi, a]);
+	}
+	if (!want.length) return;
+	const all = want.every(([fi, a]) => state.picks.has(pickKey(fi, a)));
+	const next = new Set(state.picks);
+	for (const [fi, a] of want) {
+		const key = pickKey(fi, a);
+		if (all) next.delete(key); else next.add(key);
+	}
+	setState({ picks: next });
+}
+
+/** 全选 / 全不选（当前视图）。 */
+export function toggleAll() {
+	const all = Object.values(ACTIONS).flatMap((x) => x.acts);
+	toggleActions(all);
+}
+
 /** 勾选/取消某一类（当前视图作用域）。已经是全选就整类取消，否则整类勾上。 */
 export function toggleKind(kind) {
-	const scope = state.cur === ALL
-		? state.files.map((f, fi) => [f, fi])
-		: (state.files[state.cur] ? [[state.files[state.cur], state.cur]] : []);
 	const hit = [];
-	for (const [f, fi] of scope) for (const a of f.anomalies || []) if (a.kind === kind) hit.push([fi, a]);
+	for (const [f, fi] of scopeOf()) for (const a of f.anomalies || []) if (a.kind === kind) hit.push([fi, a]);
 	if (!hit.length) return;
 	const all = hit.every(([fi, a]) => state.picks.has(pickKey(fi, a)));
 	const next = new Set(state.picks);

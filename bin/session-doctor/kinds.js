@@ -38,6 +38,17 @@ export const KINDS = {
 	"context-edit-stale":  { label: "旧改写",   action: "remove", tone: "rem",  why: "同一目标的旧改写账本：只有最后一条生效，这条已被顶掉" },
 };
 
+/** 动作分组：给「全部可删 / 可折 / 可接 / 可清」四个复选框用。 */
+/** 为什么动作分组也要在这张表里：界面与统计都从 metaOf 取，动作集合若另写一份，
+ *  两处必然分叉 —— 2026-11-26 实测：fold 组的定义写成 ["fold"] 漏了 strip，
+ *  于是「全部可折」点下去漏掉死调用那一类，而屏幕上没有任何东西指出这一点。 */
+export const ACTIONS = {
+	remove: { label: "全部可删", tone: "rem",   acts: ["remove"],            title: "删除类：整条 entry 去掉" },
+	fold:   { label: "全部可折", tone: "fold",  acts: ["fold", "strip"],     title: "折叠与摘块：块内留头尾、或只摘掉死引用" },
+	relink: { label: "全部可接", tone: "rel",   acts: ["relink"],            title: "接链：只改 parentId，不删字节" },
+	clean:  { label: "全部可清", tone: "clean", acts: ["clean"],             title: "清字段：只删 thinkingSignature，思考正文不动" },
+};
+
 /** 未知 kind 一律当 info：宁可少删，也不要按猜测去动数据。 */
 export function metaOf(kind) {
 	return KINDS[kind] || { label: String(kind), action: "info", tone: "info", why: "" };

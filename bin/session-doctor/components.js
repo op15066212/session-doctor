@@ -9,7 +9,7 @@ import { h } from "./vendor/preact.mjs";
 import { useRef, useMemo, useLayoutEffect, useEffect, useState } from "./vendor/preact-hooks.mjs";
 import htm from "./vendor/htm.mjs";
 import { Virtualizer, elementScroll, observeElementRect, observeElementOffset } from "./vendor/virtual-core/index.js";
-import { ALL, PHASE, totals, fileTotals, picked, visibleAnomalies, pickKey, kindGroups } from "./store.js";
+import { ALL, PHASE, totals, fileTotals, picked, visibleAnomalies, pickKey, kindGroups, actionGroups } from "./store.js";
 import { metaOf } from "./kinds.js";
 import { fmtMB, fmtBytes, shortName, shortProject } from "./format.js";
 
@@ -157,42 +157,56 @@ export function Sidebar({ state, onSelect }) {
 }
 
 /* ── 工具栏 ────────────────────────────────────── */
-export function Toolbar({ state, onPickKinds, onToggleKind, onClear, onApply }) {
+export function Toolbar({ state, onToggleAll, onToggleActions, onToggleKind, onApply }) {
 	const busy = state.phase === PHASE.SCAN || state.phase === PHASE.APPLY;
 	const p = picked(state);
-	// 作用域写在按钮上，不只在代码里：单文件视图下「勾选全部可删」指的是这一份，
-	// 文案若仍写「全部」，人以为改了全库（2026-11-25 修）。
+	// 作用域写进 title，不只在代码里：单文件视图下「全部可删」指的是这一份，
+	// 文案若仍暗示全库，人以为改了所有会话（2026-11-25 修）。
 	const one = state.cur !== ALL;
 	const f = one ? state.files[state.cur] : null;
 	const scope = one && f ? "此文件" : "全部";
 	const scopeTitle = one && f ? "只勾选这个文件（" + shortName(f.name, 22) + "）" : "勾选所有文件";
-	// 每一类修复一个复选框：勾上=这一类在当前视图里全选。
-	// 为什么要按 kind 分而不是只给「可删/可折」两个大按钮：那些按钮把「接链」「清签名」
-	// 这类只改一个字段的动作混进去，人选了「全部可折」就顺手改了协议必需的签名。
 	const groups = kindGroups(state);
-	const kindBar = groups.length
-		? html`<div class="toolbar kinds">${groups.map((g) => html`<label class=${"kindbox tone-" + (g.tone || "info")} title=${g.why}>
-			<input type="checkbox" checked=${g.full} disabled=${busy}
-				onChange=${() => onToggleKind(g.kind)} />
-			<span class="klabel">${g.label}</span>
-			<span class="kcnt">${g.picked ? g.picked + "/" : ""}${g.count}</span>
-		</label>`)}</div>`
-		: null;
-	// 两行工具栏必须包在**一个**容器里：.panel 是 grid-template-rows: auto 1fr（两行）。
-	// 直接加第三个子元素就成了第三行，中间那个 1fr 落到工具栏上，列表被挤成 0 高 ——
-	// 虚拟化于是渲染 0 行（2026-11-26 实测：fileCols=0 wide=0 rows=0，而数据是 162 条）。
+	const acts = actionGroups(state);
+	// 全选的三态：全部勾上才算「已全选」。数字用明细条数（聚合项算它代表的条数），
+	// 否则屏幕上写「全选 645」而实际两万多条 —— 关于不可逆动作的数字必须是真数。
+	const allCount = groups.reduce((n, g) => n + g.count, 0);
+	const allPicked = groups.reduce((n, g) => n + g.picked, 0);
+	const allFull = allCount > 0 && allPicked >= allCount;
+	// 全部选择项都是复选框：全选 / 按动作 / 按类。执行仍是按钮（那是动作，不是选择）。
+	// 面板是 grid-template-rows: auto 1fr，所以这两行必须包在同一个 .toolbars 里占一行。
 	return html`
 		<div class="toolbars">
-			${kindBar}
-			<div class="toolbar">
-			<button id="pickRemove" class="btn small" disabled=${busy} title=${scopeTitle}
-				onClick=${() => onPickKinds(["remove"])}>勾选${scope}可删</button>
-			<button id="pickFold" class="btn small" disabled=${busy} title=${scopeTitle}
-				onClick=${() => onPickKinds(["fold", "strip"])}>勾选${scope}可折</button>
-			<button class="btn small" disabled=${busy} onClick=${onClear}>全不选</button>
-			<span class="spacer"></span>
-			<span id="selInfo" class="selinfo">${p.n ? "将省 " + fmtMB(p.bytes) : ""}</span>
-			<button class="btn danger small" disabled=${p.n === 0 || busy} onClick=${onApply}>执行</button>
+			<div class="toolbar kinds">
+				<label class="kindbox tone-all" title=${scopeTitle}>
+					<input id="pickAll" type="checkbox" checked=${allFull} disabled=${busy || !allCount}
+						ref=${(el) => { if (el) el.indeterminate = allPicked > 0 && !allFull; }}
+						onChange=${() => onToggleAll()} />
+						onChange=${() => onToggleAll()} />
+					<span class="klabel">全选</span>
+					<span class="kcnt">${allPicked ? allPicked + "/" : ""}${allCount}</span>
+				</label>
+				${acts.map((a) => html`<label class=${"kindbox tone-" + a.tone} title=${a.title + "（" + scope + "）"}>
+					<input id=${"pickAct-" + a.act} type="checkbox" checked=${a.full} disabled=${busy || !a.count}
+						ref=${(el) => { if (el) el.indeterminate = a.picked > 0 && !a.full; }}
+						onChange=${() => onToggleActions(a.acts)} />
+						onChange=${() => onToggleActions(a.acts)} />
+					<span class="klabel">${a.label}</span>
+					<span class="kcnt">${a.picked ? a.picked + "/" : ""}${a.count}</span>
+				</label>`)}
+			</div>
+			<div class="toolbar kinds">
+				${groups.map((g) => html`<label class=${"kindbox tone-" + (g.tone || "info")} title=${g.why}>
+					<input id=${"pickKind-" + g.kind} type="checkbox" checked=${g.full} disabled=${busy}
+						ref=${(el) => { if (el) el.indeterminate = g.picked > 0 && !g.full; }}
+						onChange=${() => onToggleKind(g.kind)} />
+						onChange=${() => onToggleKind(g.kind)} />
+					<span class="klabel">${g.label}</span>
+					<span class="kcnt">${g.picked ? g.picked + "/" : ""}${g.count}</span>
+				</label>`)}
+				<span class="spacer"></span>
+				<span id="selInfo" class="selinfo">${p.n ? p.n + " 条 · 将省 " + fmtMB(p.bytes) : ""}</span>
+				<button id="btnApply" class="btn danger small" disabled=${p.n === 0 || busy} onClick=${onApply}>执行</button>
 			</div>
 		</div>`;
 }

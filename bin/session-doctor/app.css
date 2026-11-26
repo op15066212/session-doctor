@@ -271,3 +271,5 @@ body::before {
 .kindbox.tone-fold { border-color: rgba(200, 150, 40, 0.45); }
 .kindbox.tone-rel { border-color: rgba(70, 150, 220, 0.5); }
 .kindbox.tone-clean { border-color: rgba(60, 170, 130, 0.5); }
+.kindbox.tone-all { border-color: var(--line); font-weight: 600; }
+.kindbox:has(input:disabled) { opacity: .45; cursor: default; }
