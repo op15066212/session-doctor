@@ -79,10 +79,9 @@ bin/
     vendor/               前端依赖（preact/htm/virtual-core），直接进仓
     e2e-probe.cjs         E2E 探针
   lib/session-fix.mjs     ← 一行转发，见上
-  check-fix-source.mjs    判据：转发路径能解析到真值
   check-scan-scope.mjs    判据：不扫子代理记录
   check-ui-script.mjs     判据：前端每个模块都能被 node 解析
-  check-ui-e2e.mjs        判据：真起 Electron，48 条断言跑一遍主流程
+  check-ui-e2e.mjs        判据：真起 Electron，51 条断言跑一遍主流程
 tools/
   session-doctor-desktop/   Electron 壳（main.mjs 只做窗口 + 起后端）
   session-doctor-installer/ 打包：Electron 运行时 + app/ → 7z SFX → exe
