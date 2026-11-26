@@ -336,9 +336,16 @@ function openBrowser(link) {
 }
 
 // ── CLI：只有直接跑这个文件时才执行；被桌面版 import 时不执行任何副作用 ──
+// 路径换算必须用 fileURLToPath，不能用 new URL(...).pathname：
+// 后者返回的是 URL 编码后的串，中文目录会被编成 %E4%BC%9A%E8%AF%9D…，
+// 与 process.argv[1] 解出的真实路径永远不相等 —— 于是 invokedDirectly 恒假、
+// 这个文件静默退出 rc=0、什么都不做，而且一个字节的报错都没有。
+// 2026-11-26 实测：装到 C:/tmp/inst5/会话医生/... 后跑 node bin/session-doctor.mjs --no-open，
+// rc=0，stdout/stderr 全空；同一份代码在纯 ASCII 路径下正常。产品名就是中文，所以这条必踩。
 const invokedDirectly = (() => {
 	try {
-		return Boolean(process.argv[1]) && resolve(process.argv[1]) === resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
+		if (!process.argv[1]) return false;
+		return resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
 	} catch {
 		return false;
 	}
