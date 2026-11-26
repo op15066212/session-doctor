@@ -70,8 +70,11 @@ node bin/restore-thinking.mjs --write    # 写盘（改前先备份到 .session-
 于是「清签名」那 21942 条被当成摘块目标，把 17 个会话、共 22024 个 thinking 块**整块摘掉**；
 而当时 verify 只数签名字段 —— 签名确实归零，写盘一路绿灯。
 
-现在两条判据挡着：`verify` 里的「thinking 块数不变」（清签名只许删字段），
-和 `check-clean-signature.mjs` 的事故样本（把只有 thinking-signature 的 chosen 喂给摘块函数，块数必须一个不少）。
+现在三条判据挡着：`verify` 里的「thinking 块数下降量 == 被删条目里的块数」
+（为什么不是「完全不变」：删「孤立思考」是设计好的删除，必然少一个块 —— 写成不变会把合法删除判红，
+实测 1103 → 1102 就让一个文件永远清不掉）；`check-clean-signature.mjs` 的事故样本
+（把只有 thinking-signature 的 chosen 喂给摘块函数，块数必须一个不少）；
+`check-verify-on-real.mjs` 在真实会话副本上把「全选执行」走一遍，并验漏传计数时判据会红。
 
 恢复的语义写死在工具里，三条不许违反：
 
