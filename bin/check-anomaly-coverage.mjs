@@ -80,10 +80,8 @@ const probes = loadProbes();
 // 基线：已知缺样本的类。写理由，且只能缩小——补了样本就从这里删掉。
 const BASELINE = new Map(Object.entries({
   "dangling-edit": "需要 context_edit 指向不存在目标",
-  "dup-image": "需要两条消息含同一张图",
   "big-thinking": "需要超 minBytes 的 thinking 块",
   "big-toolcall": "需要超 minBytes 的工具参数",
-  "whitespace-only": "需要只有空白文本块",
   "unreachable": "需要从根沿 parentId 走不到的条目",
   "image-overflow": "需要超过图片上限的会话",
   "thinking-signature": "需要带 signature 的 thinking 块",
@@ -104,9 +102,18 @@ for (const k of kinds) {
   missing++;
 }
 
+// 弱覆盖：只在 check-ui-e2e.mjs 里出现。那条要 Electron，本机一直跳过——
+// 「提到了」不等于「验过了」。2026-11-27 实测：thinking-only 与 big-text 正是这种形状，
+// 它们在覆盖率里一直算「有样本」，而这条判据从没在本机跑红过。
+const WEAK = "bin/check-ui-e2e.mjs";
+const weak = kinds.filter((k) => {
+  const hits = coveredBy(k, probes);
+  return hits.length > 0 && hits.every((h) => h === WEAK);
+});
+if (weak.length) console.log("  弱覆盖（只在要 Electron 的 e2e 里提到，本机跳过）：" + weak.join(", "));
 const uncovered = kinds.filter((k) => !coveredBy(k, probes).length);
 console.log("");
-console.log("异常类共 " + kinds.length + " 类：有样本 " + (kinds.length - uncovered.length) + " / 缺样本 " + uncovered.length);
+console.log("异常类共 " + kinds.length + " 类：有样本 " + (kinds.length - uncovered.length - weak.length) + " / 弱覆盖 " + weak.length + " / 缺样本 " + uncovered.length);
 if (stale) console.log("基线里 " + stale + " 类已被覆盖，可从 BASELINE 删掉");
 if (missing) { console.log("新增 " + missing + " 类缺样本（基线只能缩小，不能新增）"); process.exit(1); }
 process.exit(0);

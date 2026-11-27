@@ -7,6 +7,10 @@
  *   bad-line            一行不是合法 JSON —— 写到一半断电、编码坏掉
  *   broken-link         parentId 指向不存在的 id —— 前端只渲染断点之后，前面几千条看不见
  *   unresolved-toolcall 工具调用没有对应结果 —— 中断留下的死引用
+ *   thinking-only       只有思考、无正文、无可合并兄弟 —— 流式中断的碎片
+ *   whitespace-only     全部文本块都是空白 —— 模型返回了空正文
+ *   dup-image           同一张图在会话里出现过 —— 第 2 份起无新信息
+ *   big-text            老轮次里超 minBytes 的正文 —— 可折叠（留头尾）
  * 这条判据把那三类钉住，覆盖率基线随之缩小。
  *
  * 每一类都配一条反例（同类输入但该放行），因为只验「坏样本会红」会让
@@ -27,7 +31,7 @@ try {
   console.error("读不到判定源：" + SRC + " — " + (err?.message ?? err));
   process.exit(2);
 }
-const { findAnomalies, KIND } = M;
+const { findAnomalies, KIND, DOT_PNG } = M;
 if (typeof findAnomalies !== "function" || !KIND) { console.error("判定源缺 findAnomalies / KIND（rc=2）"); process.exit(2); }
 
 // keepTurns 默认 30：可折叠区是「最近 30 轮之外」。
@@ -91,6 +95,64 @@ const CASES = [
     ],
     opts: OLD,
     forbid: KIND.UNRESOLVED_TOOLCALL
+  },
+  {
+    name: "thinking-only：只有思考、无正文、无可合并兄弟",
+    // 判定在 i < cut 块内：显式 keepTurns=1 把可折叠区推到第一条之后。
+    entries: [user("u1", null, "hi"), asst("a1", "u1", [{ type: "thinking", thinking: "想了想" }]), user("u2", "a1", "继续")],
+    opts: OLD,
+    expect: KIND.THINKING_ONLY
+  },
+  {
+    name: "thinking-only 反例：有正文同条 → 不许报（不是碎片，是正常回答）",
+    entries: [user("u1", null, "hi"), asst("a1", "u1", [{ type: "thinking", thinking: "想了想" }, { type: "text", text: "答案" }]), user("u2", "a1", "继续")],
+    opts: OLD,
+    forbid: KIND.THINKING_ONLY
+  },
+  {
+    name: "whitespace-only：全部文本块都是空白",
+    entries: [user("u1", null, "hi"), asst("a1", "u1", [{ type: "text", text: "   " }]), user("u2", "a1", "继续")],
+    opts: OLD,
+    expect: KIND.WS_ONLY
+  },
+  {
+    name: "whitespace-only 反例：文本非空白 → 不许报",
+    entries: [user("u1", null, "hi"), asst("a1", "u1", [{ type: "text", text: "有字" }]), user("u2", "a1", "继续")],
+    opts: OLD,
+    forbid: KIND.WS_ONLY
+  },
+  {
+    name: "dup-image：同一张图出现两次（第 2 份起无新信息）",
+    // 不需要 keepTurns：图片判定在 inScope 之前。
+    entries: [
+      user("u1", null, "看图"),
+      asst("a1", "u1", [{ type: "image", data: DOT_PNG, mimeType: "image/png" }]),
+      asst("a2", "a1", [{ type: "image", data: DOT_PNG, mimeType: "image/png" }])
+    ],
+    opts: {},
+    expect: KIND.DUP_IMAGE
+  },
+  {
+    name: "dup-image 反例：两张不同的图 → 不许报",
+    entries: [
+      user("u1", null, "看图"),
+      asst("a1", "u1", [{ type: "image", data: DOT_PNG, mimeType: "image/png" }]),
+      asst("a2", "a1", [{ type: "image", data: DOT_PNG.slice(0, -4) + "AAAA", mimeType: "image/png" }])
+    ],
+    opts: {},
+    forbid: KIND.DUP_IMAGE
+  },
+  {
+    name: "big-text：老轮次里超 minBytes（默认 10240）的正文",
+    entries: [user("u1", null, "hi"), asst("a1", "u1", [{ type: "text", text: "x".repeat(11000) }]), user("u2", "a1", "继续")],
+    opts: OLD,
+    expect: KIND.BIG_TEXT
+  },
+  {
+    name: "big-text 反例：短正文 → 不许报",
+    entries: [user("u1", null, "hi"), asst("a1", "u1", [{ type: "text", text: "x".repeat(100) }]), user("u2", "a1", "继续")],
+    opts: OLD,
+    forbid: KIND.BIG_TEXT
   }
 ];
 
