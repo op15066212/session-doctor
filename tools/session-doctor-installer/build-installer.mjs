@@ -72,11 +72,12 @@ cp(path.join(ROOT, "bin", "session-doctor.mjs"), path.join(APP, "bin", "session-
 const FIX_CANDIDATES = [
   process.env.SESSION_FIX_SRC,
   path.resolve(ROOT, "..", ".pi", "agent", "bin", "lib", "session-fix.mjs"),
-  path.join(os.homedir(), ".pi", "agent", "bin", "lib", "session-fix.mjs"),
   path.join(ROOT, "bin", "lib", "session-fix.mjs"),
+  path.join(os.homedir(), ".pi", "agent", "bin", "lib", "session-fix.mjs"),
 ].filter(Boolean);
 const SESSION_FIX_SRC = FIX_CANDIDATES.find((f) => {
-  try { return fs.statSync(f).size > 200; } catch { return false; }
+  // 真值与转发的本质区别不是大小，是「有没有 export * from」。
+  try { return !/export \* from/.test(fs.readFileSync(f, "utf8")); } catch { return false; }
 });
 if (!SESSION_FIX_SRC) {
   console.error("打包失败：候选里没有实体判定逻辑（都小于 200 字节或是转发）：");
@@ -87,8 +88,12 @@ cp(SESSION_FIX_SRC, path.join(APP, "bin", "lib", "session-fix.mjs"));
 // 断言：复制进来的是实体，不是转发。转发文件装到别的机器上 import 就断。
 {
   const packed = fs.readFileSync(path.join(APP, "bin", "lib", "session-fix.mjs"), "utf8");
-  if (/export \* from "(\.\.\/){2,}/.test(packed)) {
-    console.error("打包失败：session-fix.mjs 是指向别处的转发，安装包里会断");
+  // 2026-11-27 实测：本机 ~/.pi/agent/bin/lib/session-fix.mjs 是转发，写法是
+  //   export * from "file:///C:/Users/.../projects/session-doctor/bin/lib/session-fix.mjs"
+  // 而原来的正则只挡相对路径 "../.."，于是绝对路径转发被装进安装包 —— 装到别的机器
+  // 那个 file:// 不存在，import 立刻断。现在挡任何 form：只要是 export * from 就算转发。
+  if (/export \* from/.test(packed)) {
+    console.error("打包失败：session-fix.mjs 是转发（含 export * from），安装包里会断：" + packed.split(LF).find((x) => x.includes("export * from")));
     process.exit(1);
   }
 }
