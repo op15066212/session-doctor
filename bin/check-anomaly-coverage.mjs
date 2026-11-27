@@ -100,12 +100,12 @@ if (!kinds.length) { console.error("读不出 KIND 全表（rc=2）"); process.e
 const probes = loadProbes();
 
 // 基线：已知缺样本的类。写理由，且只能缩小——补了样本就从这里删掉。
-const BASELINE = new Map(Object.entries({
-  "dangling-edit": "需要 context_edit 指向不存在目标",
-  "thinking-signature": "需要带 signature 的 thinking 块",
-  "context-edit-dup": "需要 context_edit 复制目标且只截短 thinking",
-  "context-edit-stale": "需要同一目标的两条 context_edit"
-}));
+//
+// 2026-11-27 清空：16 类全部有真样本（各有正样本与反例，见 bin/check-anomaly-samples.mjs）。
+// 空表不是「这条判据没事可做」，而是它当前的最强结论：没有任何一类缺样本。
+// 留着这个结构，是为了让「新增一类异常」时必须显式登记或立刻补样本——
+// 否则 rc=1。把结构删掉，就退化成「谁都可以加类、谁都不用给样本」。
+const BASELINE = new Map(Object.entries({}));
 
 let missing = 0;
 if (dead.length) {
@@ -116,10 +116,8 @@ let stale = 0;
 for (const k of kinds) {
   const hit = coveredBy(k, probes);
   if (hit.length) {
-    if (BASELINE.has(k)) { console.log("  提示  " + k + " 已有样本（" + hit[0] + "），可从基线删掉"); stale++; }
     continue;
   }
-  if (BASELINE.has(k)) continue;
   console.log("  红    " + k + " 没有任何坏样本，也不在基线里");
   missing++;
 }
