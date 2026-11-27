@@ -65,12 +65,22 @@ cp(path.join(ROOT, "tools", "session-doctor-desktop", "icon.ico"), path.join(APP
 cp(path.join(ROOT, "bin", "session-doctor.mjs"), path.join(APP, "bin", "session-doctor.mjs"));
 // 判定逻辑的真值在主仓（本仓 bin/lib/session-fix.mjs 只是一行转发）。
 // 安装包要装到别的机器上，必须带实体文件，所以从真值源直接取。
-// 没写死用户名：从 ROOT 的父目录推。
-const SESSION_FIX_SRC =
-  process.env.SESSION_FIX_SRC ||
-  path.resolve(ROOT, "..", ".pi", "agent", "bin", "lib", "session-fix.mjs");
-if (!fs.existsSync(SESSION_FIX_SRC)) {
-  console.error("打包失败：找不到判定逻辑真值 " + SESSION_FIX_SRC);
+// 真值在主仓。原写法「从 ROOT 的父目录推」只在构建器住在 ~/.pi/agent/tools/ 下时成立；
+// 仓搬到 ~/projects/session-doctor 之后，推出 ~/projects/.pi/agent/bin/lib/session-fix.mjs，
+// 打包直接 rc=2（2026-11-27 实测）。改成候选表，取第一个「存在且不是转发」的：
+// 转发文件只有一行，真值 800+ 字节。
+const FIX_CANDIDATES = [
+  process.env.SESSION_FIX_SRC,
+  path.resolve(ROOT, "..", ".pi", "agent", "bin", "lib", "session-fix.mjs"),
+  path.join(os.homedir(), ".pi", "agent", "bin", "lib", "session-fix.mjs"),
+  path.join(ROOT, "bin", "lib", "session-fix.mjs"),
+].filter(Boolean);
+const SESSION_FIX_SRC = FIX_CANDIDATES.find((f) => {
+  try { return fs.statSync(f).size > 200; } catch { return false; }
+});
+if (!SESSION_FIX_SRC) {
+  console.error("打包失败：候选里没有实体判定逻辑（都小于 200 字节或是转发）：");
+  for (const f of FIX_CANDIDATES) console.error("  " + f);
   process.exit(2);
 }
 cp(SESSION_FIX_SRC, path.join(APP, "bin", "lib", "session-fix.mjs"));
