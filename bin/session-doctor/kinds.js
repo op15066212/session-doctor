@@ -27,7 +27,6 @@ export const KINDS = {
 	"big-text":            { label: "长正文",   action: "fold",   tone: "fold", why: "老轮次的长正文" },
 	"big-thinking":        { label: "长思考",   action: "fold",   tone: "fold", why: "老轮次的长思考" },
 	"big-toolcall":        { label: "长参数",   action: "fold",   tone: "fold", why: "老轮次的超长工具参数" },
-	"unreachable":         { label: "脱链",     action: "info",   tone: "info", why: "从根沿 parentId 走不到（父指针还在，但链上有环或更早的断口）" },
 	"broken-link":         { label: "断链",     action: "relink", tone: "rel",  why: "父指针指向的条目不在文件里：接回时间上紧邻的前一条，一个字节不删" },
 	"thinking-signature":  { label: "思考签名", action: "clean",  tone: "clean", why: "思考块的 API 签名（openai-completions 忽略；anthropic 必需，别清错协议）" },
 	"bad-line":            { label: "坏行",     action: "info",   tone: "info", why: "这一行不是合法 JSON" },
