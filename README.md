@@ -133,7 +133,12 @@ gate.mjs                   总闸：glob 发现 bin/check-*.mjs 全跑
 | 反例 | `node gate.mjs --selftest` → rc=0 | 好样本绿、坏样本未红 |
 | 消去 | `node bin/check-fix-source.mjs` → rc=0 | 私有转发路径指向错误实体 |
 
-覆盖矩阵尚未做格上反演；判据数量不等于独立缺陷覆盖数。
+覆盖反演已落地：`bin/check-anomaly-coverage.mjs` 在候选集 n≤4 上先做 ζ 累积，再用布尔格 μ(S)=(−1)^|S| 反演成“恰好由哪些判据共同覆盖”。它只报告候选集，不把候选外的缺陷冒充已覆盖。
+
+```bash
+node bin/check-anomaly-coverage.mjs --selftest  # ζ/μ 互逆；三种坏实现各自变红
+node bin/check-anomaly-coverage.mjs             # 报告恰好覆盖组合
+```
 
 ## 判据
 

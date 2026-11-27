@@ -59,6 +59,47 @@ export function coveredBy(kind, files) {
   return files.filter((f) => f.text.includes(kind)).map((f) => f.path);
 }
 
+
+/**
+ * 布尔格上的莫比乌斯反演：
+ * cumulative[A] = Σ(B⊇A) exact[B]，反演后 exact 恢复每个精确覆盖组合。
+ * 只做 n≤4：全枚举成本是 2^n，超过上限必须先缩小候选集。
+ */
+export function subsetZeta(exact, n) {
+  if (!Number.isInteger(n) || n < 0 || n > 4 || exact.length !== 2 ** n) throw new Error("n 必须在 0..4 且数组长度为 2^n");
+  const out = [...exact];
+  for (let bit = 0; bit < n; bit++) {
+    for (let mask = 0; mask < out.length; mask++) {
+      if ((mask & (1 << bit)) === 0) out[mask] += out[mask | (1 << bit)];
+    }
+  }
+  return out;
+}
+
+export function subsetMobiusInvert(cumulative, n) {
+  if (!Number.isInteger(n) || n < 0 || n > 4 || cumulative.length !== 2 ** n) throw new Error("n 必须在 0..4 且数组长度为 2^n");
+  const out = [...cumulative];
+  for (let bit = 0; bit < n; bit++) {
+    for (let mask = 0; mask < out.length; mask++) {
+      if ((mask & (1 << bit)) === 0) out[mask] -= out[mask | (1 << bit)];
+    }
+  }
+  return out;
+}
+
+/** 把「一个探针覆盖哪些异常类」的累积数反演成精确组合数。 */
+export function coverageProfile(kinds, files, limit = 4) {
+  const chosen = kinds.slice(0, limit);
+  const n = chosen.length;
+  const cumulative = Array(2 ** n).fill(0);
+  for (const file of files) {
+    let mask = 0;
+    for (let i = 0; i < n; i++) if (file.text.includes(chosen[i])) mask |= 1 << i;
+    for (let need = 0; need < cumulative.length; need++) if ((mask & need) === need) cumulative[need]++;
+  }
+  return { chosen, cumulative, exact: subsetMobiusInvert(cumulative, n) };
+}
+
 function loadProbes() {
   const out = [];
   const binDir = path.join(REPO, "bin");
@@ -81,6 +122,36 @@ if (process.argv.includes("--selftest")) {
   const kinds = kindsIn(src);
   const fake = [{ path: "bin/check-x.mjs", text: "坏样本：" + kinds[0] }];
   const cases = [
+    ["坏实现一：只做 ζ 累积，未反演", (() => {
+      const exact = [1, 2, 0, 3];
+      return JSON.stringify(subsetZeta(exact, 2)) !== JSON.stringify(exact);
+    })()],
+    ["坏实现二：把 μ 的减法写成加法", (() => {
+      const exact = [1, 2, 0, 3];
+      const z = subsetZeta(exact, 2);
+      const wrong = [...z];
+      for (let bit = 0; bit < 2; bit++) for (let mask = 0; mask < wrong.length; mask++)
+        if ((mask & (1 << bit)) === 0) wrong[mask] += wrong[mask | (1 << bit)];
+      return JSON.stringify(wrong) !== JSON.stringify(exact);
+    })()],
+    ["坏实现三：把数论 μ 套进布尔格", (() => {
+      const exact = [1, 2, 0, 3];
+      const z = subsetZeta(exact, 2);
+      const wrong = z.map((v, mask) => v * (mask === 0 ? 1 : mask === 3 ? 0 : -1));
+      return JSON.stringify(wrong) !== JSON.stringify(exact);
+    })()],
+    ["布尔格 ζ/μ 互逆 n=1..4", [1,2,3,4].every((n) => {
+      const exact = Array.from({ length: 2 ** n }, (_, i) => (i * 3 + 1) % 5);
+      return JSON.stringify(subsetMobiusInvert(subsetZeta(exact, n), n)) === JSON.stringify(exact);
+    })],
+    ["错格：n=4 的数据不能用 n=3 吞掉", (() => {
+      try { subsetMobiusInvert([1,2,3], 3); return false; } catch { return true; }
+    })()],
+    ["重复覆盖 3→1：反演能恢复恰好覆盖", (() => {
+      const files = [{ text: "a b" }, { text: "a b" }, { text: "a" }];
+      const p = coverageProfile(["a", "b"], files);
+      return p.exact[3] === 2 && p.exact[1] === 1;
+    })()],
     ["从判定源读出全部异常类（>= 10）", kinds.length >= 10],
     ["有样本的类能被认出", coveredBy(kinds[0], fake).length === 1],
     ["没样本的类认不出（用一个不存在的 kind）", coveredBy("zzz-not-a-kind", fake).length === 0],
@@ -131,6 +202,16 @@ const weak = kinds.filter((k) => {
   return hits.length > 0 && hits.every((h) => h === WEAK);
 });
 if (weak.length) console.log("  弱覆盖（只在要 Electron 的 e2e 里提到，本机跳过）：" + weak.join(", "));
+const profile = coverageProfile(kinds, probes);
+const nonzero = profile.exact
+  .map((count, mask) => ({ mask, count }))
+  .filter((x) => x.count > 0);
+const label = (mask) => {
+  const names = profile.chosen.filter((_k, i) => (mask & (1 << i)) !== 0);
+  return names.length ? names.join(" + ") : "无候选覆盖";
+};
+console.log("布尔格反演（候选 n=" + profile.chosen.length + "，μ(S)=(-1)^|S|）：");
+for (const x of nonzero) console.log("  恰好 " + label(x.mask) + "：" + x.count);
 const uncovered = kinds.filter((k) => !coveredBy(k, probes).length);
 console.log("");
 console.log("异常类共 " + kinds.length + " 类：有样本 " + (kinds.length - uncovered.length - weak.length) + " / 弱覆盖 " + weak.length + " / 缺样本 " + uncovered.length);
