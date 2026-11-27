@@ -342,6 +342,38 @@ const CASES = [
     opts: {},
     expect: KIND.DUP_IMAGE,
     count: 2
+  },
+  // ===== 冲突样本：一个输入同时命中两类，验的是「谁先 return」=====
+  //
+  // 这一组是我缺的（组 2 2026-11-27 指出）：原来 34 条全是「独有类」输入——
+  // 只该一条成立的，于是只验了「每条能不能单独赢」，没验「同时赢时谁赢」。
+  // 而后者才是判定顺序的真实内容：前一条 return 了，后一条就是死代码。
+  //
+  // 没有冲突样本时，把某条判据的代码删掉，样本可能一条都不红——
+  // 因为它本来就没轮到过。
+  {
+    name: "冲突：死调用 + 超长参数 → 应报 unresolved-toolcall，不该报 big-toolcall",
+    // 两条判据都成立：toolCall 没有 toolResult（死引用）、参数值超 minBytes（可折叠）。
+    // 设计的优先级是「摘掉死引用」先——它连引用都不成立，折叠参数没有意义。
+    entries: [
+      user("u1", null, "写文件"),
+      asst("a1", "u1", [{ type: "text", text: "好" }, { type: "toolCall", id: "c-dead", name: "write", arguments: { content: "z".repeat(11000) } }]),
+      user("u2", "a1", "继续")
+    ],
+    opts: OLD,
+    exactly: [KIND.UNRESOLVED_TOOLCALL]
+  },
+  {
+    name: "冲突：思考既有签名又超长 → 应报 big-thinking，不该报 thinking-signature",
+    // 这两条不互斥：签名判定在体量判定之外，两条都该报。用它证明「不互斥」也被记录着。
+    // 判据是 exactly 列出两个——若实现改成「先 return」，这里立刻红。
+    entries: [
+      user("u1", null, "hi"),
+      asst("a1", "u1", [{ type: "thinking", thinking: "y".repeat(11000), thinkingSignature: "sig-abc" }, { type: "text", text: "答案" }]),
+      user("u2", "a1", "继续")
+    ],
+    opts: OLD,
+    exactly: [KIND.BIG_THINKING, KIND.THINKING_SIGNATURE]
   }
 ];
 
@@ -353,6 +385,15 @@ for (const c of CASES) {
   } catch (err) {
     console.log("FAIL  " + c.name + "  [抛出：" + (err?.message ?? err) + "]");
     bad += 1;
+    continue;
+  }
+  if (c.exactly) {
+    // 恰好这些，不多不少。冲突样本用它：既要「该赢的赢」，也要「不该赢的没赢」。
+    const got = [...new Set(kinds)].sort().join(",");
+    const want = [...new Set(c.exactly)].sort().join(",");
+    const ok = got === want;
+    console.log((ok ? "PASS  " : "FAIL  ") + c.name + (ok ? "" : "  [实得 " + (got || "无") + "，期望 " + want + "]"));
+    if (!ok) bad += 1;
     continue;
   }
   if (c.expect) {
