@@ -14,6 +14,12 @@
  *   big-thinking        老轮次里超 minBytes 的思考 —— 可折叠
  *   big-toolcall        老轮次里超 minBytes 的工具参数 —— 可折叠
  *   image-overflow      链上图片超过单次请求上限 —— 每轮 400，会话永久卡死
+ *   dangling-edit       context_edit 指向不存在的 target —— 永远不生效
+ *   context-edit-stale  同一 target 的旧改写账本 —— 已被后来者顶掉
+ *   context-edit-dup    replacement 是目标消息的复制、只截短 thinking —— 插件 bug 形状
+ *   thinking-signature  思考块带 API 签名 —— openai-completions 下是纯冗余字节
+ *   zero-token        空 content + usage.totalTokens 0 —— 失败的模型调用留下的空壳
+ *   dup-system        同一份 system 快照存过多次 —— 只保留最后一份
  * 这条判据把那三类钉住，覆盖率基线随之缩小。
  *
  * 每一类都配一条反例（同类输入但该放行），因为只验「坏样本会红」会让
@@ -210,6 +216,107 @@ const CASES = [
     ],
     opts: { maxImages: 2 },
     forbid: KIND.IMAGE_OVERFLOW
+  },
+  {
+    name: "dangling-edit：context_edit 指向不存在的 target",
+    // 「省略一条不存在的消息」——永远不生效。旧口径只处理 replacement=null，
+    // 2026-11-26 改成两者都不生效都该清（之前那 54 条一直躺着没人管）。
+    entries: [user("u1", null, "hi"), { type: "context_edit", targetId: "gone", replacement: null }],
+    opts: {},
+    expect: KIND.DANGLING_EDIT
+  },
+  {
+    name: "dangling-edit 反例：target 存在 → 不许报",
+    entries: [user("u1", null, "hi"), { type: "context_edit", targetId: "u1", replacement: null }],
+    opts: {},
+    forbid: KIND.DANGLING_EDIT
+  },
+  {
+    name: "context-edit-stale：同一 target 两条，前一条被顶掉",
+    // append-only 覆盖：读时取最后一条，前面每条都不进上下文。
+    // 实测某会话 478 个 target、平均每个被写 275 次——收益最大的一条无损清理。
+    entries: [
+      user("u1", null, "hi"),
+      { type: "context_edit", targetId: "u1", replacement: null, seq: 1 },
+      { type: "context_edit", targetId: "u1", replacement: null, seq: 2 }
+    ],
+    opts: {},
+    expect: KIND.CONTEXT_EDIT_STALE
+  },
+  {
+    name: "context-edit-stale 反例：同一 target 只有一条（即最后一条）→ 不许报",
+    entries: [user("u1", null, "hi"), { type: "context_edit", targetId: "u1", replacement: null }],
+    opts: {},
+    forbid: KIND.CONTEXT_EDIT_STALE
+  },
+  {
+    name: "context-edit-dup：replacement 是目标的复制，只有 thinking 被截短",
+    // 插件 bug 的形状：非 thinking 块逐字节相同、块数一致，thinking 文本变了。
+    // 两个条件缺一不可——只差 thinkingSignature 的那种是 pi-think-sentry 的成果，不是垃圾。
+    entries: [
+      user("u1", null, "hi"),
+      asst("a1", "u1", [{ type: "thinking", thinking: "很长的原始思考" }, { type: "text", text: "答案" }]),
+      { type: "context_edit", targetId: "a1", replacement: { content: [{ type: "thinking", thinking: "短" }, { type: "text", text: "答案" }] } }
+    ],
+    opts: {},
+    expect: KIND.CONTEXT_EDIT
+  },
+  {
+    name: "context-edit-dup 反例：只差 thinkingSignature（清签名的成果）→ 不许报",
+    // 2026-11-26 实测的相反形状：pi-think-sentry 在 turn_end 写的覆盖记录与 bug 逐字节同形，
+    // 但它是插件清签名的成果。判据收紧成「thinking 文本不同才算复制品」。
+    entries: [
+      user("u1", null, "hi"),
+      asst("a1", "u1", [{ type: "thinking", thinking: "原始思考" }, { type: "text", text: "答案" }]),
+      { type: "context_edit", targetId: "a1", replacement: { content: [{ type: "thinking", thinking: "原始思考" }, { type: "text", text: "答案" }] } }
+    ],
+    opts: {},
+    forbid: KIND.CONTEXT_EDIT
+  },
+  {
+    name: "thinking-signature：思考块带 API 签名",
+    // 与体量无关，只要带就报（对 openai-completions 是纯冗余字节）。
+    entries: [user("u1", null, "hi"), asst("a1", "u1", [{ type: "thinking", thinking: "x", thinkingSignature: "sig-abc123" }, { type: "text", text: "答案" }])],
+    opts: {},
+    expect: KIND.THINKING_SIGNATURE
+  },
+  {
+    name: "thinking-signature 反例：没有签名字段 → 不许报",
+    entries: [user("u1", null, "hi"), asst("a1", "u1", [{ type: "thinking", thinking: "x" }, { type: "text", text: "答案" }])],
+    opts: {},
+    forbid: KIND.THINKING_SIGNATURE
+  },
+  {
+    name: "zero-token：空 content 且 0 token（失败的模型调用留下的空壳）",
+    // 两个条件都要满足。只有 content 空但 token > 0 的，是模型真返回了空正文，另一种类。
+    entries: [{ type: "message", id: "a0", parentId: null, message: { role: "assistant", content: [], usage: { totalTokens: 0 } } }],
+    opts: {},
+    expect: KIND.ZERO_TOKEN
+  },
+  {
+    name: "zero-token 反例：content 空但 token > 0（模型真返回了空正文）→ 不许报",
+    entries: [{ type: "message", id: "a0", parentId: null, message: { role: "assistant", content: [], usage: { totalTokens: 42 } } }],
+    opts: {},
+    forbid: KIND.ZERO_TOKEN
+  },
+  {
+    name: "dup-system：同一份 system 快照存了两次，前一条被顶掉",
+    // 活跃 prompt 每次重建，同一份内容会存几十次；只留最后一份。
+    entries: [
+      { type: "message", id: "s1", parentId: null, message: { role: "system", content: "同一份提示词" } },
+      { type: "message", id: "s2", parentId: "s1", message: { role: "system", content: "同一份提示词" } }
+    ],
+    opts: {},
+    expect: KIND.DUP_SYSTEM
+  },
+  {
+    name: "dup-system 反例：两份内容不同的 system → 不许报",
+    entries: [
+      { type: "message", id: "s1", parentId: null, message: { role: "system", content: "提示词 A" } },
+      { type: "message", id: "s2", parentId: "s1", message: { role: "system", content: "提示词 B" } }
+    ],
+    opts: {},
+    forbid: KIND.DUP_SYSTEM
   }
 ];
 
