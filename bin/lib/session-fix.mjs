@@ -608,7 +608,9 @@ export function verify(before, after, expect = {}) {
     // 那条统计量从根做可达性遍历，成环的节点走不到，数会涨；本行只管悬空归零。
     // 曾写「由 unreachable 判据兜」：KIND.UNREACHABLE 那个异常类从未实现，2026-11-27 已删。
     // 注释指向一个不存在的东西，比没有注释更坏——读的人会以为已有保护。
-    ["悬空减少量 == 接链数", before.orphan - after.orphan === (expect.relinked ?? 0), before.orphan + " → " + after.orphan + "，接链 " + (expect.relinked ?? 0)],
+    ["悬空减少量 == 接链数 + 删掉的悬空条目数",
+      before.orphan - after.orphan === (expect.relinked ?? 0) + (expect.orphansDropped ?? 0),
+      before.orphan + " → " + after.orphan + "，接链 " + (expect.relinked ?? 0) + " + 删悬空 " + (expect.orphansDropped ?? 0)],
     ["悬空 context_edit 不新增", after.dangling <= before.dangling, before.dangling + " → " + after.dangling],
     // 链尾判据只挡「原链尾还在、却不再是最后一条」——那说明行序被打乱，或东西被插到它后面。
     // 原链尾被删掉时链尾必然前移（删的就是最后一条），那不是损坏：user / assistant 条数已另判。
@@ -797,7 +799,22 @@ export function applyRelink(lines, entries, chosen) {
 
 export function applyRemoval(lines, entries, chosen) {
   const drop = new Set(chosen.filter((a) => a.block === null && REMOVABLE.includes(a.kind)).map((a) => a.entry));
-  if (!drop.size) return { lines, removed: 0, rewired: 0, asstRemoved: 0, usersRemoved: 0, cascadedEdits: 0, thinkRemoved: 0 };
+  // 被删条目里「parentId 本来就指向不存在的 id」的条数。
+  //
+  // 为什么要有（2026-11-27 实测到的真缺陷）：verify 的「悬空减少量 == 接链数」
+  // 假设只有接链能降悬空。但删掉一条**本身就是悬空**的条目，悬空也会降。
+  // 某会话里 broken-link 与 zero-token 是同一条 assistant：删它悬空 1 → 0 而 relinked 0，
+  // 判据报红。那不是代码坏，是判据的口径漏了一个合法的减少来源。
+  //
+  // 在函数末尾按 drop 算一次，不依赖循环顺序——中途插入的计数很容易放错位置。
+  const allIdsOf = new Set(entries.map((e) => e?.id).filter((x) => typeof x === "string"));
+  let orphansDropped = 0;
+  for (const i of drop) {
+    const e = entries[i];
+    if (typeof e?.parentId === "string" && e.parentId && !allIdsOf.has(e.parentId)) orphansDropped += 1;
+  }
+
+  if (!drop.size) return { lines, removed: 0, rewired: 0, asstRemoved: 0, usersRemoved: 0, cascadedEdits: 0, thinkRemoved: 0, orphansDropped: 0 };
 
   const targetOfDropped = new Set();
   const idOfDropped = new Set();
@@ -882,7 +899,7 @@ export function applyRemoval(lines, entries, chosen) {
     if (e?.type === "context_edit" && typeof e.targetId === "string"
       && entryIds.has(e.targetId) && lastEditIdOf.get(e.targetId) === e.id) editsRevoked += 1;
   }
-  return { lines: out, removed: drop.size, rewired, asstRemoved, usersRemoved, cascadedEdits, editsRevoked, thinkRemoved };
+  return { lines: out, removed: drop.size, rewired, asstRemoved, usersRemoved, cascadedEdits, editsRevoked, thinkRemoved, orphansDropped };
 }
 
 /** 折叠类：块内缩成「头 + 尾 + 标记」，块本身保留。 */
@@ -979,6 +996,7 @@ export function pruneAll(lines, entries, opts = {}, maxRounds = 5) {
   // 漏传时「删对了」会被判成损坏（2026-11-26 实测：prune-session 在这个口径上永远 FAIL）。
   let editsRevoked = 0;
   let thinkRemoved = 0;
+  let orphansDropped = 0;
   let mergedLastRound = false;
   let rounds = 0;
   const parse = (ls) => ls.map((l) => { try { return JSON.parse(l); } catch { return null; } });
@@ -1010,6 +1028,7 @@ export function pruneAll(lines, entries, opts = {}, maxRounds = 5) {
       asstRemoved += r.asstRemoved;
       editsRevoked += r.editsRevoked || 0;
       thinkRemoved += r.thinkRemoved || 0;
+      orphansDropped += r.orphansDropped || 0;
       curEntries = parse(cur);
     }
     // 合并相邻 user **每轮都做**，不只在删过条目时：上一轮的合并可能让链上又出现新的相邻对
@@ -1024,7 +1043,7 @@ export function pruneAll(lines, entries, opts = {}, maxRounds = 5) {
       }
     }
   }
-  return { lines: cur, removed, rewired, stripped, usersMerged, asstRemoved, cascaded, rounds, editsRevoked, thinkRemoved };
+  return { lines: cur, removed, rewired, stripped, usersMerged, asstRemoved, cascaded, rounds, editsRevoked, thinkRemoved, orphansDropped };
 }
 
 /**
@@ -1047,6 +1066,7 @@ export function applyChosen(lines, entries, chosen, opts = {}) {
   let usersMerged = 0;
   let asstRemoved = 0;
   let thinkRemoved = 0;
+  let orphansDropped = 0;
 
   const strippable = chosen.filter((a) => a.block !== null);
   if (strippable.length) {
@@ -1065,6 +1085,7 @@ export function applyChosen(lines, entries, chosen, opts = {}) {
     asstRemoved += r.asstRemoved;
     cascadedEdits += r.cascadedEdits;
     thinkRemoved += r.thinkRemoved || 0;
+      orphansDropped += r.orphansDropped || 0;
     editsRevoked += r.editsRevoked || 0;
     ce = parse(cur);
   }
@@ -1078,7 +1099,7 @@ export function applyChosen(lines, entries, chosen, opts = {}) {
   }
   // editsRevoked 必须透传：/api/apply 要把它交给 verify，否则「有意撤销」被当成「损坏」，
   // 整批 context_edit 清理都会被拒（2026-11-26 e2e 实测：报「有意撤销 0 条」而实际撤了几千条）。
-  return { lines: cur, stripped, removed, rewired, cascadedEdits, usersMerged, asstRemoved, editsRevoked, thinkRemoved };
+  return { lines: cur, stripped, removed, rewired, cascadedEdits, usersMerged, asstRemoved, editsRevoked, thinkRemoved, orphansDropped };
 }
 
 export function applyFold(lines, entries, chosen, opts = {}) {
