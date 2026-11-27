@@ -11,6 +11,9 @@
  *   whitespace-only     全部文本块都是空白 —— 模型返回了空正文
  *   dup-image           同一张图在会话里出现过 —— 第 2 份起无新信息
  *   big-text            老轮次里超 minBytes 的正文 —— 可折叠（留头尾）
+ *   big-thinking        老轮次里超 minBytes 的思考 —— 可折叠
+ *   big-toolcall        老轮次里超 minBytes 的工具参数 —— 可折叠
+ *   image-overflow      链上图片超过单次请求上限 —— 每轮 400，会话永久卡死
  * 这条判据把那三类钉住，覆盖率基线随之缩小。
  *
  * 每一类都配一条反例（同类输入但该放行），因为只验「坏样本会红」会让
@@ -153,6 +156,60 @@ const CASES = [
     entries: [user("u1", null, "hi"), asst("a1", "u1", [{ type: "text", text: "x".repeat(100) }]), user("u2", "a1", "继续")],
     opts: OLD,
     forbid: KIND.BIG_TEXT
+  },
+  {
+    name: "big-thinking：老轮次里超 minBytes（默认 10240）的思考",
+    entries: [user("u1", null, "hi"), asst("a1", "u1", [{ type: "thinking", thinking: "y".repeat(11000) }, { type: "text", text: "答案" }]), user("u2", "a1", "继续")],
+    opts: OLD,
+    expect: KIND.BIG_THINKING
+  },
+  {
+    name: "big-thinking 反例：短思考 → 不许报",
+    entries: [user("u1", null, "hi"), asst("a1", "u1", [{ type: "thinking", thinking: "y".repeat(100) }, { type: "text", text: "答案" }]), user("u2", "a1", "继续")],
+    opts: OLD,
+    forbid: KIND.BIG_THINKING
+  },
+  {
+    name: "big-toolcall：老轮次里超 minBytes 的工具参数",
+    // 两个条件都要满足：整串 > minBytes，且至少一个参数值本身 > minBytes。
+    entries: [user("u1", null, "写文件"), asst("a1", "u1", [{ type: "text", text: "好" }, { type: "toolCall", id: "c1", name: "write", arguments: { path: "x.txt", content: "z".repeat(11000) } }]), { type: "message", id: "r1", parentId: "a1", message: { role: "toolResult", toolCallId: "c1", content: "ok" } }, user("u2", "r1", "继续")],
+    opts: OLD,
+    expect: KIND.BIG_TOOLCALL
+  },
+  {
+    name: "big-toolcall 反例：整串超阈值但没有单个超阈值的长参数 → 不许报",
+    // 这条反例针对的是「两个条件」里最容易被漏掉的第二个：
+    // arguments 里塞很多中等长度的键，整串 > minBytes，但每个值都不到阈值。
+    entries: [
+      user("u1", null, "写文件"),
+      asst("a1", "u1", [{ type: "text", text: "好" }, { type: "toolCall", id: "c1", name: "write", arguments: Object.fromEntries(Array.from({ length: 40 }, (_, i) => ["k" + i, "v".repeat(300)])) }]),
+      user("u2", "a1", "继续")
+    ],
+    opts: OLD,
+    forbid: KIND.BIG_TOOLCALL
+  },
+  {
+    name: "image-overflow：链上图片超过单次请求上限",
+    // 真事故形状：上游按单次请求张数报 400，多出来的每一轮都 400，会话永久卡死。
+    // 上限是 opts.maxImages（默认 20）。用 maxImages=2 + 3 张图，等价于「21 张图 + 20 上限」。
+    entries: [
+      user("u1", null, "看图"),
+      asst("a1", "u1", [{ type: "image", data: DOT_PNG, mimeType: "image/png" }]),
+      asst("a2", "a1", [{ type: "image", data: DOT_PNG.slice(0, -4) + "AAAB", mimeType: "image/png" }]),
+      asst("a3", "a2", [{ type: "image", data: DOT_PNG.slice(0, -4) + "AAAC", mimeType: "image/png" }])
+    ],
+    opts: { maxImages: 2 },
+    expect: KIND.IMAGE_OVERFLOW
+  },
+  {
+    name: "image-overflow 反例：张数没超上限 → 不许报",
+    entries: [
+      user("u1", null, "看图"),
+      asst("a1", "u1", [{ type: "image", data: DOT_PNG, mimeType: "image/png" }]),
+      asst("a2", "a1", [{ type: "image", data: DOT_PNG.slice(0, -4) + "AAAB", mimeType: "image/png" }])
+    ],
+    opts: { maxImages: 2 },
+    forbid: KIND.IMAGE_OVERFLOW
   }
 ];
 

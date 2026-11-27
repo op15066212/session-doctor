@@ -36,6 +36,24 @@ export function kindsIn(src) {
   return out;
 }
 
+/** 定义在 KIND 里、却从没被 findAnomalies 产生过的常量。
+ *
+ *  为什么单独一条判据（2026-11-27 实测发现）：unreachable 只有定义行，
+ *  文件里 KIND.UNREACHABLE 出现 0 次——而在 measure() 里另有一个同名的统计量
+ *  unreachable（自己算可达性），两者无关。于是这个「异常类」永远不会产生。
+ *
+ *  后果比缺样本更糟：覆盖率判据会把它永远放在「缺样本」里，人看到的是
+ *  「这一类还没写坏样本」，而真相是「这一类不存在」。一个恒缺的项会
+ *  长期霸占待办，并把真正的缺口比例冲淡。
+ *
+ *  这就是 README 里记过的那种形状：stats 计数声明了没自增。
+ *  声明的计数不自增，比不声明更坏——人以为在看数据。
+ */
+export function deadKinds(src) {
+  const names = [...src.matchAll(/^\s*([A-Z_]+):\s*"/gm)].map((m) => m[1]);
+  return names.filter((n) => (src.split("KIND." + n).length - 1) === 0);
+}
+
 /** 在磁盘上「有样本」= 这个 kind 的字符串出现在某个 check-*.mjs 或 test/ 文件里。 */
 export function coveredBy(kind, files) {
   return files.filter((f) => f.text.includes(kind)).map((f) => f.path);
@@ -65,7 +83,9 @@ if (process.argv.includes("--selftest")) {
   const cases = [
     ["从判定源读出全部异常类（>= 10）", kinds.length >= 10],
     ["有样本的类能被认出", coveredBy(kinds[0], fake).length === 1],
-    ["没样本的类认不出（用一个不存在的 kind）", coveredBy("zzz-not-a-kind", fake).length === 0]
+    ["没样本的类认不出（用一个不存在的 kind）", coveredBy("zzz-not-a-kind", fake).length === 0],
+    ["死常量能认出：定义一个从没被 KIND.x 引用的常量 → 必须报", deadKinds('const KIND = {\n  ZZZ_DEAD: "zzz-dead",\n};').length === 1],
+    ["真被引用的常量不报", deadKinds('const KIND = {\n  ZZZ_DEAD: "zzz-dead",\n};\nout.push(KIND.ZZZ_DEAD);').length === 0]
   ];
   let bad = 0;
   for (const [n, ok] of cases) { console.log((ok ? "PASS  " : "FAIL  ") + n); if (!ok) bad++; }
@@ -73,23 +93,25 @@ if (process.argv.includes("--selftest")) {
   process.exit(bad ? 1 : 0);
 }
 
-const kinds = kindsIn(fs.readFileSync(SRC, "utf8"));
+const srcText = fs.readFileSync(SRC, "utf8");
+const kinds = kindsIn(srcText);
+const dead = deadKinds(srcText);
 if (!kinds.length) { console.error("读不出 KIND 全表（rc=2）"); process.exit(2); }
 const probes = loadProbes();
 
 // 基线：已知缺样本的类。写理由，且只能缩小——补了样本就从这里删掉。
 const BASELINE = new Map(Object.entries({
   "dangling-edit": "需要 context_edit 指向不存在目标",
-  "big-thinking": "需要超 minBytes 的 thinking 块",
-  "big-toolcall": "需要超 minBytes 的工具参数",
-  "unreachable": "需要从根沿 parentId 走不到的条目",
-  "image-overflow": "需要超过图片上限的会话",
   "thinking-signature": "需要带 signature 的 thinking 块",
   "context-edit-dup": "需要 context_edit 复制目标且只截短 thinking",
   "context-edit-stale": "需要同一目标的两条 context_edit"
 }));
 
 let missing = 0;
+if (dead.length) {
+  for (const n of dead) console.log("  红    " + n + " 定义在 KIND 里，但文件里 KIND." + n + " 出现 0 次——这个类从没被产生过");
+  missing += dead.length;
+}
 let stale = 0;
 for (const k of kinds) {
   const hit = coveredBy(k, probes);

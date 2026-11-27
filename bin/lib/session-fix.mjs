@@ -32,7 +32,6 @@ export const KIND = {
   UNRESOLVED_TOOLCALL: "unresolved-toolcall",  // toolCall 无对应 toolResult（摘块，不删条目）
   THINKING_ONLY: "thinking-only",              // 只有思考、无正文无工具调用、无兄弟可合并
   WS_ONLY: "whitespace-only",                  // 只有空白文本
-  UNREACHABLE: "unreachable",                  // 从根沿 parentId 走不到（已与主链断开）
   // 悬空父指针：parentId 指向一个本文件里不存在的 id。
   // 2026-11-26 实测：一条 assistant 的 parentId 指向从没落盘的 id，leaf 往回走一步就停住，
   // 前端只渲染断点之后的 9 轮 —— 前面 4000 多条 entry 还在文件里，却看不见。
