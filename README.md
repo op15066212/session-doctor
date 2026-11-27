@@ -58,8 +58,8 @@ pi 每次请求带整条链的历史，所以链上累计超过 20 张之后，*
 
 | 层 | 在哪 | 改什么 | 判据 |
 | --- | --- | --- | --- |
-| 请求前裁 | `extensions/magpie-image-cap.ts`（插件） | 只动发出去的 payload，不改会话文件 | `check-image-cap.mjs` |
-| 文件里折 | 本仓「图片超限」这一类 | 改会话文件，折成占位，写盘生效 | `check-image-cap-chain.mjs` |
+| 请求前裁 | `~/.pi/agent/extensions/magpie-image-cap.ts`（**不在本仓**，是 pi 插件） | 只动发出去的 payload，不改会话文件 | `~/.pi/agent/bin/check-image-cap.mjs`（**不在本仓**） |
+| 文件里折 | 本仓「图片超限」这一类 | 改会话文件，折成占位，写盘生效 | `bin/check-anomaly-samples.mjs`（本仓，image-overflow 那一类） |
 
 两层都要：插件让会话能继续用，但文件里的图还在；要真降下来（以及救那些连压缩都 400 的会话）只能改文件。
 
@@ -134,6 +134,11 @@ node gate.mjs --list     # 只列
 
 新加判据不用登记：`gate.mjs` 用 glob 发现 `bin/check-*.mjs`。往 `bin/` 塞一个返回 1 的 `check-zzz-canary.mjs`，总闸必须变红并报出它。
 
+**本仓的判据只有 `bin/check-*.mjs` 这些。** 文中提到 `~/.pi/agent/bin/` 下的判据是私有仓的，
+这台机器上有，克隆到别处没有——引它们时必须写明路径，否则读者会以为本仓自带。
+2026-11-27 修：原表把三个私有仓判据写成「本仓」，与 pi-escape-guard 删掉的那份设计文档同一个病：文档指向不存在的东西。
+判据：把 README 里每个反引号路径逐个 `test -e`，命中 0 处。
+
 ## 打包
 
 ```bash
@@ -146,7 +151,7 @@ node tools/session-doctor-installer/build-installer.mjs --layout   # 只生成�
 产物：`~/Desktop/会话医生-安装.exe`（约 92 MB）。
 
 打包拒绝两种产物：
-- `session-fix.mjs` 是实体文件（2026-11-27 之前是转发，装到别的机器上 import 会断；已改）；
+- `bin/lib/session-fix.mjs` 是实体文件（2026-11-27 之前是转发，装到别的机器上 import 会断；已改）；
 - 产物里有备份/临时文件（`*.bak` / `*.orig` / `*~` / `*.log`）。被一起拷进 `app/` 的那次，安装包里躺着一个 14490 字节的旧版本。
 
 没用 electron-builder：本机 npm 12 报 `EALLOWREMOTE`，拒从 npmmirror 的 tarball 地址拉包。7z SFX 是等价物，产物同样是 exe，不依赖网络；代价是绿色版，删目录即卸载。
@@ -160,5 +165,5 @@ node tools/session-doctor-installer/build-installer.mjs --layout   # 只生成�
 - 只清本工具写的那种时间戳目录，别人的（`chainfix-*` 之类）一概不碰；
 - 清理失败不影响这次执行 —— 备份是退路，不是主线。
 
-历史：此前只写不删，实测攒到 111 份 / 6.1 GB，其中 109 份在 24 小时内。判据 `bin/check-backup-retention.mjs`。
+历史：此前只写不删，实测攒到 111 份 / 6.1 GB，其中 109 份在 24 小时内。判据在私有仓：`~/.pi/agent/bin/check-backup-retention.mjs`（**不在本仓**）。
 
