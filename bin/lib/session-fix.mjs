@@ -553,7 +553,10 @@ export function verify(before, after, expect = {}) {
 		expect.cleanIds === undefined ? before.sig - after.sig === (expect.cleaned ?? 0) : expect.cleanIds.every((id) => !after.idSet.has(id) || !(after.sigIds ?? new Set()).has(id)),
 		expect.cleanIds === undefined ? before.sig + " → " + after.sig : String(expect.cleanIds.filter((id) => after.idSet.has(id) && (after.sigIds ?? new Set()).has(id)).length) + " 条还带着"],
     // 接链判据（2026-11-26）：选了 N 条接链，悬空数必须正好降 N。
-    // 反例：接错父（把节点接到自己的后代上）会成环 —— 那条由 unreachable 判据兜，这里只管悬空归零。
+    // 反例：接错父（把节点接到自己的后代上）会成环 —— 环由 measure().unreachable 兜：
+    // 那条统计量从根做可达性遍历，成环的节点走不到，数会涨；本行只管悬空归零。
+    // 曾写「由 unreachable 判据兜」：KIND.UNREACHABLE 那个异常类从未实现，2026-11-27 已删。
+    // 注释指向一个不存在的东西，比没有注释更坏——读的人会以为已有保护。
     ["悬空减少量 == 接链数", before.orphan - after.orphan === (expect.relinked ?? 0), before.orphan + " → " + after.orphan + "，接链 " + (expect.relinked ?? 0)],
     ["悬空 context_edit 不新增", after.dangling <= before.dangling, before.dangling + " → " + after.dangling],
     // 链尾判据只挡「原链尾还在、却不再是最后一条」——那说明行序被打乱，或东西被插到它后面。
