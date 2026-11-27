@@ -36,7 +36,7 @@ for (const file of files) {
   const fe = fold.lines.map((l) => { try { return JSON.parse(l); } catch { return null; } });
   const rm = applyChosen(fold.lines, fe, chosen);
   const after = measure(rm.lines);
-  const v = verify(before, after, { relinked: rl.relinked, cleaned: cl.cleaned, cleanIds, usersMerged: rm.usersMerged, asstRemoved: rm.asstRemoved, editsRevoked: rm.editsRevoked, thinkRemoved: rm.thinkRemoved });
+  const v = verify(before, after, { relinked: rl.relinked, cleaned: cl.cleaned, cleanIds, usersMerged: rm.usersMerged, asstRemoved: rm.asstRemoved, editsRevoked: rm.editsRevoked, thinkRemoved: rm.thinkRemoved, orphansDropped: rm.orphansDropped });
   const bad = (v.checks || []).filter((c) => !c[1]);
   ran += 1;
   if (bad.length) { red += 1; console.log("     " + path.basename(file).slice(0, 24) + " " + JSON.stringify(bad)); }

@@ -28,14 +28,6 @@ const listOnly = argv.includes("--list");
 
 const SLOW = new Set(["check-ui-e2e.mjs"]);
 
-// 依赖外部活数据的判据：结论随盘上数据变，同一份代码在不同时刻红绿不同。
-// 它们不能进自动面——「红」会变成噪音，而噪音让人开始忽略整条 gate。
-//
-// check-verify-on-real.mjs 2026-11-27 实测：初始 main（e2b2863）与之后三个提交点
-// 全都 rc=1，形状是「悬空 1 → 0，接链 0」——有别的动作顺带清了悬空。
-// 四个提交点全红说明不是代码回归，是活会话里出现了新形状。
-// 修法是改成跑 test/fixtures 里的快照（可复现）；那件事没做之前它只作观察。
-const LIVE = new Set(["check-verify-on-real.mjs"]);
 
 /** 分类只看退出码：0 绿、1 红、2 及未知 跳过（环境缺失或对端没说清）。 */
 export function classify(results) {
@@ -74,17 +66,12 @@ const checks = readdirSync(BIN)
 	.sort();
 
 if (listOnly) {
-	for (const f of checks) console.log((SLOW.has(f) ? "[慢] " : LIVE.has(f) ? "[活] " : "     ") + "bin/" + f);
+	for (const f of checks) console.log((SLOW.has(f) ? "[慢] " : "     ") + "bin/" + f);
 	process.exit(0);
 }
 
 const results = [];
 for (const f of checks) {
-	if (LIVE.has(f)) {
-		results.push({ name: f, rc: 2, skipped: true });
-		console.log("skip  " + f + "（依赖活会话数据，结论随盘上数据变；单独跑才有意义）");
-		continue;
-	}
 	if (fast && SLOW.has(f)) {
 		results.push({ name: f, rc: 2, skipped: true });
 		console.log("skip  " + f);
