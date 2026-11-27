@@ -374,6 +374,39 @@ const CASES = [
     ],
     opts: OLD,
     exactly: [KIND.BIG_THINKING, KIND.THINKING_SIGNATURE]
+  },
+  {
+    // ===== 块级不互斥：同一个 for k 循环里的 continue 只跳当前块 =====
+    //
+    // 推：block 级判定的 continue 只跳过这一块，不跳过整条 message，
+    // 所以同一 message 里两个块各自命中不同 kind 时，两个都该报。
+    // 若实现里哪天有人把一个 continue 写成 break 或跳到外层，这条立刻红。
+    //
+    // 这也是我确认「36 条够用」的依据：block 级之间不存在互斥，
+    // 互斥只发生在 message 级（content 空 / 只有 thinking / 只有空白），
+    // 而那几类的条件本身互斥，不可能同时命中。
+    name: "块级不互斥：同一 message 里超长正文 + 带签名的思考 → 两条都报",
+    entries: [
+      user("u1", null, "hi"),
+      asst("a1", "u1", [{ type: "thinking", thinking: "x", thinkingSignature: "sig-abc" }, { type: "text", text: "z".repeat(11000) }]),
+      user("u2", "a1", "继续")
+    ],
+    opts: OLD,
+    exactly: [KIND.BIG_TEXT, KIND.THINKING_SIGNATURE]
+  },
+  {
+    // 同一个 for k 循环内的块级不互斥：dup-image 的 continue 只跳那个 image 块，
+    // 不跳过同一条 message 里后面的 text 块。
+    // 若有人把 continue 写成 break 或跳到外层，这条立刻红。
+    name: "块级不互斥（同循环）：重复图片 + 超长正文 → 两条都报",
+    entries: [
+      user("u1", null, "看图"),
+      asst("a1", "u1", [{ type: "image", data: DOT_PNG, mimeType: "image/png" }, { type: "text", text: "z".repeat(11000) }]),
+      asst("a2", "u1", [{ type: "image", data: DOT_PNG, mimeType: "image/png" }]),
+      user("u3", "a2", "继续")
+    ],
+    opts: OLD,
+    exactly: [KIND.BIG_TEXT, KIND.DUP_IMAGE]
   }
 ];
 
