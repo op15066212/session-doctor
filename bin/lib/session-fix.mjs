@@ -226,18 +226,28 @@ export function buildIndexes(entries, o) {
       if (!firstImageAt.has(h)) firstImageAt.set(h, i + ":" + k);
     }
   }
-  return { ids, entryById, lastEditIdx, lastSystem, callIds, resultIds, deadCalls, assistantsByParent, firstImageAt };
+  return { cut: cutoffIndex(entries, o.keepTurns), ids, entryById, lastEditIdx, lastSystem, callIds, resultIds, deadCalls, assistantsByParent, firstImageAt };
 }
 
 export function findAnomalies(entries, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
+  // 两段：算一次，然后只读判定。check-index-readonly.mjs 静态看着这条边界。
+  return judgeEntries(entries, o, buildIndexes(entries, o));
+}
+
+/**
+ * 判定：只读索引与 entries，产出异常清单。不建索引、不写任何共享结构。
+ *
+ * 为什么单独一个函数（2026-11-27）：这是「拆得开」的第二个证据。
+ * 第一个是 buildIndexes，把预计算从判定段拿出去。
+ * 现在 findAnomalies 只剩组合：buildIndexes（算一次）到 judgeEntries（只读判定）。
+ *
+ * 判据是那 34 条坏样本全绿：结构变了、行为没变。
+ * 若某个样本从绿变红，说明这两段之间还有没搬干净的共享状态。
+ */
+export function judgeEntries(entries, o, idx) {
+  const { ids, entryById, lastEditIdx, lastSystem, callIds, resultIds, deadCalls, assistantsByParent, firstImageAt, cut } = idx;
   const out = [];
-
-  // 建索引与判定在这里分成两段：这一行之上全是「建」，之下全是「用」。
-  // check-index-readonly.mjs 静态保证判定段不写它们。
-  const { ids, entryById, lastEditIdx, lastSystem, callIds, resultIds, deadCalls, assistantsByParent, firstImageAt } = buildIndexes(entries, o);
-  const cut = cutoffIndex(entries, o.keepTurns);
-
   for (let i = 0; i < entries.length; i += 1) {
     const e = entries[i];
     if (!e) {
@@ -449,8 +459,10 @@ export function findAnomalies(entries, opts = {}) {
         });
       }
     }
-  }  return out;
+  }
+  return out;
 }
+
 
 /** 结构判据：不满足就说明这一步改动坏了文件，调用方必须拒绝写盘。 */
 export function measure(lines) {
