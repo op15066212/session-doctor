@@ -79,15 +79,12 @@ const probes = loadProbes();
 
 // 基线：已知缺样本的类。写理由，且只能缩小——补了样本就从这里删掉。
 const BASELINE = new Map(Object.entries({
-  "bad-line": "最容易造，下一条就补（一行非 JSON）",
   "dangling-edit": "需要 context_edit 指向不存在目标",
   "dup-image": "需要两条消息含同一张图",
   "big-thinking": "需要超 minBytes 的 thinking 块",
   "big-toolcall": "需要超 minBytes 的工具参数",
-  "unresolved-toolcall": "需要 toolCall 没有对应 toolResult",
   "whitespace-only": "需要只有空白文本块",
   "unreachable": "需要从根沿 parentId 走不到的条目",
-  "broken-link": "需要 parentId 指向不存在的 id",
   "image-overflow": "需要超过图片上限的会话",
   "thinking-signature": "需要带 signature 的 thinking 块",
   "context-edit-dup": "需要 context_edit 复制目标且只截短 thinking",
