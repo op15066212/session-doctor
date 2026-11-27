@@ -49,9 +49,15 @@ export function splitAtMainLoop(src) {
   return { head: lines.slice(0, loop).join(body.eol), tail: lines.slice(loop).join(body.eol), loopLine: body.startLine + loop };
 }
 
-/** 主循环之前声明的索引变量（new Map / new Set）。 */
+/** 索引变量：findAnomalies 从 buildIndexes 解构出来的那些。 */
 export function indexNames(head) {
   const out = new Set();
+  // 2026-11-27 起索引声明搬进了 buildIndexes，判定段只拿解构结果。
+  // 从解构行取，而不是从 new Map/Set 取——后者已经不在这个函数里了。
+  for (const m of head.matchAll(/^  const \{ ([^}]+) \} = buildIndexes\(/gm)) {
+    for (const n of m[1].split(",").map((s) => s.trim()).filter(Boolean)) out.add(n);
+  }
+  // 兼容旧形状：若还没抽出 buildIndexes，就退回按声明取。
   for (const m of head.matchAll(/^\s*const ([A-Za-z_$][\w$]*) = new (?:Map|Set)\(\);/gm)) out.add(m[1]);
   return [...out];
 }
@@ -69,8 +75,7 @@ export function writesInTail(names, tail) {
 if (process.argv.includes("--selftest")) {
   const fake = [
     "export function findAnomalies(entries, opts = {}) {",
-    "  const index = new Map();",
-    "  const dead = new Map();",
+    "  const { index, dead } = buildIndexes(entries, {});",
     "  const cut = cutoffIndex(entries, 1);",
     "  for (let i = 0; i < entries.length; i += 1) {",
     "    index.set(i, 1);",
@@ -83,7 +88,7 @@ if (process.argv.includes("--selftest")) {
   const names = indexNames(s.head);
   const w = writesInTail(names, s.tail);
   const cases = [
-    ["切分出主循环（在 findAnomalies 内）", !!s && s.loopLine === 5],
+    ["切分出主循环（在 findAnomalies 内）", !!s && s.loopLine === 4],
     ["认出两个索引", names.length === 2 && names.includes("index") && names.includes("dead")],
     ["主循环里 index.set 被报出", w.includes("index.set")],
     ["只读的 dead 不被报", !w.some((x) => x.startsWith("dead."))],

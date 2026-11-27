@@ -146,10 +146,20 @@ export function cutoffIndex(entries, keepTurns) {
  * 认异常。返回的每条都带 entry（条目下标）与 block（content 内下标，删除类为 null），
  * 以及 bytes（能省多少）与 why（一句话说清为什么它不是内容）。
  */
-export function findAnomalies(entries, opts = {}) {
-  const o = { ...DEFAULTS, ...opts };
-  const out = [];
-
+/**
+ * 建索引：一次扫完，产出判定段只读的全部预计算。
+ *
+ * 为什么抽成函数（2026-11-27）：组 2 的判据「两段共享可变结构就不是两段」。
+ * 抽出来之后「建」与「用」在代码上是两个函数，check-index-readonly.mjs 才站得住——
+ * 它让「判定段写索引」变成可静态检查的，而不是只能靠人盯着循环体。
+ *
+ * 返回的 Map/Set 调用方只读。它们本身不可变吗？不——freeze 对 Map 无效
+ * （见 check-index-readonly.mjs 顶部的最小复现），保护来自那条静态判据，不来自运行时。
+ *
+ * 除索引外还返回派生值（如 deadCalls）：它由 callIds 与 resultIds 算出一次，
+ * 判定段只读。留在判定段算会变成「每类异常各算一遍」，那是两段共享计算的形状。
+ */
+export function buildIndexes(entries, o) {
   // 先建 id 索引：悬空判定要用完整集合；entryById 给「上下文改写账本」比对目标内容用。
   const ids = new Set();
   const entryById = new Map();
@@ -216,6 +226,16 @@ export function findAnomalies(entries, opts = {}) {
       if (!firstImageAt.has(h)) firstImageAt.set(h, i + ":" + k);
     }
   }
+  return { ids, entryById, lastEditIdx, lastSystem, callIds, resultIds, deadCalls, assistantsByParent, firstImageAt };
+}
+
+export function findAnomalies(entries, opts = {}) {
+  const o = { ...DEFAULTS, ...opts };
+  const out = [];
+
+  // 建索引与判定在这里分成两段：这一行之上全是「建」，之下全是「用」。
+  // check-index-readonly.mjs 静态保证判定段不写它们。
+  const { ids, entryById, lastEditIdx, lastSystem, callIds, resultIds, deadCalls, assistantsByParent, firstImageAt } = buildIndexes(entries, o);
   const cut = cutoffIndex(entries, o.keepTurns);
 
   for (let i = 0; i < entries.length; i += 1) {
