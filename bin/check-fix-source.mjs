@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @guards D10,D11   // 打包器断言只挡相对路径 / 真值路径假设失效
 /**
  * 判据：本仓 bin/lib/session-fix.mjs 是**实体判定源**（不是转发），导出齐全；
  *       若本机私有仓 ~/.pi/agent/bin/lib/session-fix.mjs 存在，它必须是**一行转发**到本仓。
