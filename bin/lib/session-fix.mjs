@@ -196,7 +196,26 @@ export function findAnomalies(entries, opts = {}) {
     if (!assistantsByParent.has(p)) assistantsByParent.set(p, []);
     assistantsByParent.get(p).push(e);
   }
-  const seenImage = new Map();
+  // 每张图首次出现的 (entry, block)。预先算好，判定时只读。
+  //
+  // 为什么是「预先算」而不是「边扫边记」（2026-11-27）：边扫边记让判定与记账混在
+  // 同一个循环里，于是这一类的判决依赖扫描顺序——那正是「拆不开」的形状：
+  // 两段共享一个可变结构，就不是两段（组 2 的判据）。
+  //
+  // 键必须是 (entry, block) 组合，不能只按 entry 下标：同一条 message 里两张相同的图，
+  // entry 下标相同，只按 entry 判会把第 2 张当成首次出现而漏报。
+  // 边界样本挡着这条：check-anomaly-samples.mjs 的「dup-image 边界」两条。
+  const firstImageAt = new Map();
+  for (let i = 0; i < entries.length; i += 1) {
+    const c = entries[i]?.message?.content;
+    if (!Array.isArray(c)) continue;
+    for (let k = 0; k < c.length; k += 1) {
+      const b = c[k];
+      if (!b || b.type !== "image" || typeof b.data !== "string" || b.foldedFrom !== undefined) continue;
+      const h = createHash("md5").update(b.data).digest("hex");
+      if (!firstImageAt.has(h)) firstImageAt.set(h, i + ":" + k);
+    }
+  }
   const cut = cutoffIndex(entries, o.keepTurns);
 
   for (let i = 0; i < entries.length; i += 1) {
@@ -320,8 +339,8 @@ export function findAnomalies(entries, opts = {}) {
       // 下一轮的处理对象，与 pi-think-sentry 那个越清越多的 bug 同形。用 foldedFrom 认出来。
       if (b.type === "image" && typeof b.data === "string" && o.foldImages !== "none" && b.foldedFrom === undefined) {
         const h = createHash("md5").update(b.data).digest("hex");
-        const isDup = seenImage.has(h);
-        if (!isDup) seenImage.set(h, i);
+        // 只读：不是首次出现的那个 (entry, block) 就是重复。
+        const isDup = firstImageAt.get(h) !== i + ":" + k;
         if (o.foldImages === "all" || isDup) {
           out.push({
             entry: i, block: k, kind: KIND.DUP_IMAGE, bytes: b.data.length,

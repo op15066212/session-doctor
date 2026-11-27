@@ -317,6 +317,31 @@ const CASES = [
     ],
     opts: {},
     forbid: KIND.DUP_SYSTEM
+  },
+  {
+    name: "dup-image 边界：同一条 message 里两张相同的图 → 必须报 1 条",
+    // 这条挡的是「按 entry 下标判重」的写法：若只比较 entry 下标，
+    // 同一 entry 内的第 2 张会被当成「首次出现」而漏报。
+    // 正确判据是按 (entry, block) 组合判「是否首次」。
+    entries: [
+      user("u1", null, "看图"),
+      asst("a1", "u1", [{ type: "image", data: DOT_PNG, mimeType: "image/png" }, { type: "image", data: DOT_PNG, mimeType: "image/png" }])
+    ],
+    opts: {},
+    expect: KIND.DUP_IMAGE,
+    count: 1
+  },
+  {
+    name: "dup-image 边界：三张相同的图分三条 message → 必须报 2 条（第 2、3 张）",
+    entries: [
+      user("u1", null, "看图"),
+      asst("a1", "u1", [{ type: "image", data: DOT_PNG, mimeType: "image/png" }]),
+      asst("a2", "u1", [{ type: "image", data: DOT_PNG, mimeType: "image/png" }]),
+      asst("a3", "u1", [{ type: "image", data: DOT_PNG, mimeType: "image/png" }])
+    ],
+    opts: {},
+    expect: KIND.DUP_IMAGE,
+    count: 2
   }
 ];
 
@@ -331,8 +356,10 @@ for (const c of CASES) {
     continue;
   }
   if (c.expect) {
-    const ok = kinds.includes(c.expect);
-    console.log((ok ? "PASS  " : "FAIL  ") + c.name + (ok ? "" : "  [实得 " + (kinds.join(", ") || "无") + "]"));
+    const times = kinds.filter((k) => k === c.expect).length;
+    const ok = c.count === undefined ? times > 0 : times === c.count;
+    const why = c.count === undefined ? "" : (times + " 次，期望 " + c.count);
+    console.log((ok ? "PASS  " : "FAIL  ") + c.name + (ok ? "" : "  [该 kind " + why + "；实得 " + (kinds.join(", ") || "无") + "]"));
     if (!ok) bad += 1;
   } else {
     const ok = !kinds.includes(c.forbid);
@@ -343,5 +370,12 @@ for (const c of CASES) {
 
 console.log("");
 if (bad) { console.log("坏样本判据：" + bad + " 条不符"); process.exit(1); }
-console.log("坏样本判据：" + (CASES.length / 2) + " 类，各有正样本与反例，全部成立");
+// 类数按 kind 去重，不按 CASES.length / 2 推算。
+// 2026-11-27 自踩：给 dup-image 加了 2 条边界样本后，输出从「16 类」变成「17 类」——
+// 那个数一直假设「每类恰好两条」，是一种「声明的数不自增」的反面：
+// 数会自己涨，而它数的不是它声称数的东西。
+const classCount = new Set(CASES.map((c) => c.expect ?? c.forbid)).size;
+const posCount = CASES.filter((c) => c.expect).length;
+const negCount = CASES.filter((c) => c.forbid).length;
+console.log("坏样本判据：" + classCount + " 类，" + CASES.length + " 条用例（正 " + posCount + " / 反 " + negCount + "），全部成立");
 process.exit(0);
