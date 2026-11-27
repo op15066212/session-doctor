@@ -21,7 +21,7 @@ mkdirSync(join(ROOT, "sessions"), { recursive: true });
 // 只拷后端与判定逻辑，不拷前端（判的是 CLI 入口，不是界面）。
 cpSync(join(REPO, "bin", "session-doctor.mjs"), join(ROOT, "bin", "session-doctor.mjs"));
 mkdirSync(join(ROOT, "bin", "lib"), { recursive: true });
-writeFileSync(join(ROOT, "bin", "lib", "session-fix.mjs"), readFileSync(join(REPO, "..", ".pi", "agent", "bin", "lib", "session-fix.mjs"), "utf8"));
+writeFileSync(join(ROOT, "bin", "lib", "session-fix.mjs"), readFileSync(join(REPO, "bin", "lib", "session-fix.mjs"), "utf8"));
 
 let fail = 0;
 const ok = (name, cond, detail = "") => { console.log((cond ? "OK   " : "FAIL ") + name + (detail ? "  [" + detail + "]" : "")); if (!cond) fail += 1; };

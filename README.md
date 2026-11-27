@@ -95,13 +95,15 @@ node bin/restore-thinking.mjs --write    # 写盘（改前先备份到 .session-
 
 ## 判定逻辑不在本仓
 
-`bin/lib/session-fix.mjs` 只有一行 `export * from`，真值在 `~/.pi/agent/bin/lib/session-fix.mjs`。
+`bin/lib/session-fix.mjs` 是**实体**（1155 行）：认异常与算结果的唯一实现。
 
-原因：那个文件的消费者是本机五个入口——`prune-session`、`fold-session`、会话医生界面、`check-session-fix-verify`、`check-context-edit`。复制一份进本仓，就要在两处分别维护「什么算异常」，迟早给出两个不同判决。所以本仓只做转发。
+本机 `~/.pi/agent/bin/lib/session-fix.mjs` 反而是一行转发指向这里——方向在 2026-11-27 调过来了。
+原来反过来（本仓转发到私仓），于是克隆到任何别的机器 `import` 立刻 `ERR_MODULE_NOT_FOUND`，
+10 条判据 7 条红。公开仓必须自带判定逻辑，私仓的十几个消费者 import 路径不变，内容从实体变成转发。
 
 **路径层数**：`bin/lib/` 到 home 是三层（`../../../`）。数错一层会 import 到 `C:\Users\.pi\...`，界面一启动就 `ERR_MODULE_NOT_FOUND`，而语法检查全绿。`check-fix-source.mjs` 就是挡这个的。
 
-**副作用**：本仓不是自包含的。clone 到没有 `~/.pi/agent` 的机器上，界面起不来。安装包不受影响——打包时从真值源复制实体文件，包里是完整的。
+**本仓自包含**：`git clone` 之后 `node gate.mjs` 直接可跑，不依赖 `~/.pi/agent`。
 
 ## 目录
 
@@ -111,7 +113,7 @@ bin/
   session-doctor/         前端：preact + htm + TanStack virtual-core，纯 ESM 无构建
     index.html  app.js  components.js  store.js  api.js  format.js  kinds.js  app.css
     vendor/               前端依赖，直接进仓；e2e-probe.cjs 是 E2E 探针
-  lib/session-fix.mjs     ← 一行转发到真值，见上
+  lib/session-fix.mjs     ← 实体：认异常与算结果都在这
   restore-thinking.mjs    从备份回填 thinking 块（改前备份，链不动）
   check-*.mjs             判据，清单见 `node gate.mjs --list`
 tools/
@@ -144,7 +146,7 @@ node tools/session-doctor-installer/build-installer.mjs --layout   # 只生成�
 产物：`~/Desktop/会话医生-安装.exe`（约 92 MB）。
 
 打包拒绝两种产物：
-- `session-fix.mjs` 是转发而不是实体文件（装到别的机器上 import 会断）；
+- `session-fix.mjs` 是实体文件（2026-11-27 之前是转发，装到别的机器上 import 会断；已改）；
 - 产物里有备份/临时文件（`*.bak` / `*.orig` / `*~` / `*.log`）。被一起拷进 `app/` 的那次，安装包里躺着一个 14490 字节的旧版本。
 
 没用 electron-builder：本机 npm 12 报 `EALLOWREMOTE`，拒从 npmmirror 的 tarball 地址拉包。7z SFX 是等价物，产物同样是 exe，不依赖网络；代价是绿色版，删目录即卸载。
