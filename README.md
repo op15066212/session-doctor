@@ -83,6 +83,8 @@ node bin/restore-thinking.mjs --write
 
 `bin/lib/session-fix.mjs` 是异常判定和结果计算的唯一实现。仓库自包含，克隆后不依赖 `~/.pi/agent`。
 
+死调用判定用两个索引集合计算差集，直接构造结果集合；同一条消息的多个调用分别对账，只摘除没有结果的调用。
+
 `bin/check-fix-source.mjs` 检查判定源是实体文件，安装包不会带入转发路径。
 
 ## 规则模型

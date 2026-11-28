@@ -196,7 +196,8 @@ export function buildIndexes(entries, o) {
     }
     if (m.role === "toolResult" && typeof m.toolCallId === "string") resultIds.add(m.toolCallId);
   }
-  const deadCalls = new Set([...callIds].filter((id) => !resultIds.has(id)));
+  const deadCalls = new Set();
+  for (const id of callIds) if (!resultIds.has(id)) deadCalls.add(id);
 
   // 同一条 assistant 的兄弟：判断「thinking-only 是否孤立可用合并」。
   const assistantsByParent = new Map();

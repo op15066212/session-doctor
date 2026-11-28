@@ -84,15 +84,21 @@ const CASES = [
     forbid: KIND.BROKEN_LINK
   },
   {
-    name: "unresolved-toolcall：toolCall 没有对应 toolResult",
-    // 这条 assistant 有正文 + 一个死调用：判定摘掉那个块，不删整条。
+    name: "unresolved-toolcall：多个调用仅摘除没有结果的调用",
     entries: [
       user("u1", null, "跑一下"),
-      asst("a1", "u1", [{ type: "text", text: "好的" }, { type: "toolCall", id: "call-dead", name: "bash", arguments: {} }]),
-      user("u2", "a1", "继续")
+      asst("a1", "u1", [
+        { type: "text", text: "好的" },
+        { type: "toolCall", id: "call-dead-a", name: "bash", arguments: {} },
+        { type: "toolCall", id: "call-live", name: "read", arguments: {} },
+        { type: "toolCall", id: "call-dead-b", name: "write", arguments: {} }
+      ]),
+      { type: "message", id: "r1", parentId: "a1", message: { role: "toolResult", toolCallId: "call-live", content: "done" } },
+      user("u2", "r1", "继续")
     ],
     opts: OLD,
-    expect: KIND.UNRESOLVED_TOOLCALL
+    expect: KIND.UNRESOLVED_TOOLCALL,
+    count: 2
   },
   {
     name: "unresolved-toolcall 反例：有对应 toolResult → 不许报",
