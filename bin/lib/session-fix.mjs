@@ -227,7 +227,7 @@ export function buildIndexes(entries, o) {
       if (!firstImageAt.has(h)) firstImageAt.set(h, i + ":" + k);
     }
   }
-  return { cut: cutoffIndex(entries, o.keepTurns), ids, entryById, lastEditIdx, lastSystem, callIds, resultIds, deadCalls, assistantsByParent, firstImageAt };
+  return { cut: cutoffIndex(entries, o.keepTurns), ids, entryById, lastEditIdx, lastSystem, deadCalls, assistantsByParent, firstImageAt };
 }
 
 export function findAnomalies(entries, opts = {}) {
@@ -247,7 +247,7 @@ export function findAnomalies(entries, opts = {}) {
  * 若某个样本从绿变红，说明这两段之间还有没搬干净的共享状态。
  */
 export function judgeEntries(entries, o, idx) {
-  const { ids, entryById, lastEditIdx, lastSystem, callIds, resultIds, deadCalls, assistantsByParent, firstImageAt, cut } = idx;
+  const { ids, entryById, lastEditIdx, lastSystem, deadCalls, assistantsByParent, firstImageAt, cut } = idx;
   const out = [];
   for (let i = 0; i < entries.length; i += 1) {
     const e = entries[i];
